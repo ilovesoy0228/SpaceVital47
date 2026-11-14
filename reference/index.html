@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ujumin Astronaut Health Monitor (prototype)</title>
+<style>
+:root{
+  --bg:#0d1220;--panel:#151c30;--panel2:#1b2440;--line:#2a3558;--text:#e8ecf8;--mute:#9aa6c8;
+  --l0:#2fb67c;--l1:#e0b33a;--l2:#ee8a3a;--l3:#ec4b5a;--accent:#6ea8ff;
+}
+@media (prefers-color-scheme:light){
+  :root{--bg:#f3f5fb;--panel:#fff;--panel2:#eef1fa;--line:#d4daed;--text:#16203a;--mute:#5a6788;
+  --l0:#13855a;--l1:#9a7200;--l2:#b85c0a;--l3:#c42336;--accent:#1f5fd1}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Noto Sans KR","Segoe UI",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:0 16px 40px}
+header{padding:18px 0 8px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+h1{font-size:20px;margin:0}
+h1 small{display:block;font-size:12px;color:var(--mute);font-weight:400}
+.disc{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--l1);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--mute);margin:8px 0 12px}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.alert{border-color:var(--l3);color:var(--l3)}
+.grid{display:grid;grid-template-columns:340px 1fr;gap:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:860px){.grid,.grid2{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 10px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0}
+.row label{flex:1}
+.row small{color:var(--mute);display:block;font-size:11px}
+input[type=number]{width:82px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 6px;font:inherit}
+.flags label{display:flex;gap:8px;align-items:center;margin:5px 0;font-size:14px}
+.presets{display:flex;flex-wrap:wrap;gap:6px}
+.presets button{font-size:12px;padding:5px 9px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--l0);border-radius:10px;padding:10px 12px}
+.tile.l1{border-top-color:var(--l1)}.tile.l2{border-top-color:var(--l2)}.tile.l3{border-top-color:var(--l3)}
+.tile h3{margin:0;font-size:14px;display:flex;justify-content:space-between;gap:6px;align-items:center}
+.badge{font-size:11px;border:1px solid currentColor;border-radius:99px;padding:1px 8px;white-space:nowrap}
+.b0{color:var(--l0)}.b1{color:var(--l1)}.b2{color:var(--l2)}.b3{color:var(--l3)}
+.tile p{margin:6px 0 0;font-size:13px;color:var(--mute)}
+.tile .act{color:var(--text)}
+.tag{font-size:10.5px;color:var(--mute);margin-top:6px}
+svg.sp{width:100%;height:34px;display:block;margin-top:6px}
+.banner{border-radius:10px;padding:10px 14px;margin-bottom:12px;border:1px solid var(--line);background:var(--panel)}
+.banner.l3{border-color:var(--l3);background:color-mix(in srgb,var(--l3) 14%,var(--panel))}
+.overall{display:flex;gap:10px;align-items:center;font-weight:600}
+.dot{width:14px;height:14px;border-radius:50%;display:inline-block}
+.steps{list-style:none;padding:0;margin:0}
+.steps li{display:flex;gap:10px;align-items:flex-start;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;margin:6px 0}
+.steps li.done{opacity:.55;text-decoration:line-through}
+.steps input{width:22px;height:22px;margin-top:1px;flex:none}
+progress{width:100%;height:10px}
+textarea{width:100%;min-height:300px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:12.5px/1.45 ui-monospace,Menlo,Consolas,monospace}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{border-bottom:1px solid var(--line);padding:6px 6px;text-align:left;vertical-align:top}
+th{color:var(--mute);font-weight:600}
+.scroll{overflow-x:auto}
+a{color:var(--accent)}
+.mute{color:var(--mute)}
+.hide{display:none}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>우주민 · Ujumin <small id="sub"></small></h1>
+  <div><button id="langBtn" aria-label="language">EN / 한국어</button></div>
+</header>
+<div class="disc" id="disc"></div>
+
+<nav id="nav">
+  <button data-mode="care" id="tabCare"></button>
+  <button data-mode="respond" id="tabRespond"></button>
+  <button data-mode="evidence" id="tabEvidence"></button>
+</nav>
+
+<div id="bannerBox"></div>
+
+<!-- CARE -->
+<section id="viewCare" class="grid">
+  <div>
+    <div class="card">
+      <h2 id="hCheckin"></h2>
+      <div id="numFields"></div>
+      <div class="flags" id="flagFields"></div>
+    </div>
+    <div class="card">
+      <h2 id="hPresets"></h2>
+      <div class="presets" id="presets"></div>
+    </div>
+    <div class="card">
+      <h2 id="hRad"></h2>
+      <svg id="radChart" viewBox="0 0 300 120" style="width:100%"></svg>
+      <div class="row"><input type="range" id="tSlider" min="0" max="47" value="0" style="flex:1" aria-label="hour"><span id="tLabel" class="mute"></span></div>
+      <div class="presets"><button id="playBtn"></button><button id="resetBtn"></button></div>
+      <p class="mute" style="font-size:12px;margin:8px 0 0" id="radNote"></p>
+    </div>
+  </div>
+  <div>
+    <div class="card"><div class="overall" id="overall"></div><div class="mute" id="overallNote" style="font-size:13px"></div></div>
+    <div class="tiles" id="tiles"></div>
+  </div>
+</section>
+
+<!-- RESPOND -->
+<section id="viewRespond" class="hide"></section>
+
+<!-- EVIDENCE -->
+<section id="viewEvidence" class="hide"></section>
+</div>
+
+<script>
+"use strict";
+/* ============ helpers ============ */
+let lang = "ko";
+const T = (ko, en) => (lang === "ko" ? ko : en);
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ============ simulated crew data (clearly synthetic) ============ */
+function rng(seed) { return () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const NUM = {
+  sleep:  { ko: "수면 (시간)", en: "Sleep (h)", min: 0, max: 12, step: 0.5, def: 7, amp: 0.4, dec: 1 },
+  stress: { ko: "스트레스 (1–5)", en: "Stress (1–5)", min: 1, max: 5, step: 1, def: 2, amp: 0.6, dec: 0 },
+  hr:     { ko: "안정 시 심박 (bpm)", en: "Resting HR (bpm)", min: 40, max: 150, step: 1, def: 62, amp: 2, dec: 0 },
+  temp:   { ko: "체온 (°C)", en: "Body temp (°C)", min: 35, max: 41, step: 0.1, def: 36.6, amp: 0.15, dec: 1 },
+  ex:     { ko: "운동 (분/일)", en: "Exercise (min/day)", min: 0, max: 180, step: 5, def: 90, amp: 8, dec: 0 },
+  intake: { ko: "식사 섭취 (계획 대비 %)", en: "Food intake (% of plan)", min: 0, max: 120, step: 5, def: 100, amp: 5, dec: 0 },
+  co2:    { ko: "실내 CO₂ 분압 (mmHg)", en: "Cabin ppCO₂ (mmHg)", min: 0, max: 10, step: 0.1, def: 3, amp: 0.2, dec: 1 },
+};
+const FLAGS = {
+  chest:     { ko: "흉통 / 실신 느낌", en: "Chest pain / near-fainting" },
+  vision:    { ko: "시야 변화 (흐림, 원시화)", en: "Vision change (blur, farsightedness)" },
+  flank:     { ko: "옆구리·허리 심한 통증", en: "Severe flank pain" },
+  backpain:  { ko: "허리·고관절 통증", en: "Back / hip pain" },
+  headache:  { ko: "두통 / 어지러움", en: "Headache / dizziness" },
+  confusion: { ko: "의식 혼미 / 심한 무기력", en: "Confusion / marked lethargy" },
+  eyesplash: { ko: "눈에 화학물질이 튐 / 심한 눈 통증", en: "Chemical in eye / severe eye pain" },
+};
+const HIST = {}, BASE = {}, DAYS = 30;
+(function () {
+  const r = rng(20261114);
+  const noise = () => (r() + r() + r() - 1.5) * 2;
+  for (const k in NUM) {
+    const n = NUM[k], a = [];
+    for (let d = 0; d < DAYS - 1; d++) {
+      let v = n.def + noise() * n.amp;
+      v = Math.min(n.max, Math.max(n.min, v));
+      a.push(+v.toFixed(n.dec));
+    }
+    HIST[k] = a;
+    BASE[k] = a.slice(0, 14).reduce((x, y) => x + y, 0) / 14; // personal baseline = mean of first 14 days
+  }
+})();
+
+/* ============ risk register (single source of truth) ============ */
+const LV = {
+  ko: ["정상", "주의", "조치", "긴급"],
+  en: ["Normal", "Watch", "Act", "Emergency"],
+};
+const ICON = ["○", "△", "◇", "■"];
+const HRP = "https://www.nasa.gov/hrp/risks/";
+const S = (name, url) => ({ name, url });
+
+const RISKS = [
+  { id: "rad", ko: "방사선", en: "Radiation", tab: true, ev: "B", spark: null,
+    rule: ["이벤트 진행(모의 플럭스 ≥10 pfu) → 조치 / 대피 지시 수신 → 긴급. ≥10 pfu는 NOAA S1 '이벤트 시작·종료' 정의일 뿐 행동 임계값이 아님",
+           "Event in progress (simulated flux ≥10 pfu) → Act / shelter instruction received → Emergency. ≥10 pfu is NOAA S1's event start/end definition only, not an action threshold"],
+    src: [S("NASA HRP — Hazards / Risks", HRP), S("NOAA SWPC — Space Weather Scales", "https://www.swpc.noaa.gov/noaa-scales-explanation")],
+    eval: (s, b, ctx) => {
+      if (s.shelter) return { lvl: 3, msg: ["대피 지시 수신 (모의)", "Shelter instruction received (simulated)"] };
+      if (ctx.flux >= 10) return { lvl: 2, msg: ["방사선 이벤트 진행 중 (모의 곡선)", "Radiation event in progress (synthetic curve)"] };
+      return { lvl: 0, msg: ["이벤트 없음", "No event"] };
+    },
+    acts: [null, null, ["임무 절차·지상 안내 확인, 대피 지시 대기", "Check mission procedure / ground guidance; await shelter instruction"], ["긴급 모드: 방사선 카드 실행", "Emergency mode: run the radiation card"]] },
+  { id: "sleep", ko: "행동·수면", en: "Behavior & sleep", tab: true, ev: "B", spark: "sleep",
+    rule: ["내 평균 대비 수면 ↓1h / 스트레스 ↑1 → 주의, ↓2h / ↑2 → 조치 (데모 임계값)",
+           "Sleep ↓1 h or stress ↑1 vs own baseline → Watch; ↓2 h or ↑2 → Act (demo thresholds)"],
+    src: [S("NASA HRP Risks — inadequate sleep / behavioral conditions pages", HRP)],
+    eval: (s, b) => {
+      const ds = b.sleep - s.sleep, dt = s.stress - b.stress;
+      const l = Math.max(ds >= 2 ? 2 : ds >= 1 ? 1 : 0, dt >= 2 ? 2 : dt >= 1 ? 1 : 0);
+      return { lvl: l, msg: [`수면 ${s.sleep}h (내 평균 ${b.sleep.toFixed(1)}h), 스트레스 ${s.stress}`, `Sleep ${s.sleep} h (baseline ${b.sleep.toFixed(1)}), stress ${s.stress}`] };
+    },
+    acts: [null, ["취침 환경·일정 점검, 내일 재확인", "Review sleep schedule/environment; recheck tomorrow"], ["작업 부하 조정 요청, 지상 심리·수면 지원 연락 권고", "Request workload change; contact ground behavioral/sleep support"], null] },
+  { id: "sans", ko: "안구·시각 (SANS)", en: "Eye / vision (SANS)", tab: true, ev: "B", spark: null,
+    rule: ["증상 보고만 수행 — 진단하지 않음. 시야 변화 체크 시 조치(기록·지상 보고)", "Symptom reporting only — no diagnosis. Vision change checked → Act (log + report to ground)"],
+    src: [S("NASA HRP Risks — Spaceflight Associated Neuro-ocular Syndrome page", HRP)],
+    eval: (s) => s.vision ? { lvl: 2, msg: ["시야 변화 보고됨", "Vision change reported"] } : { lvl: 0, msg: ["보고된 증상 없음", "No symptom reported"] },
+    acts: [null, null, ["증상 시작 시각 기록, 지상에 보고", "Log onset time; report to ground"], null] },
+  { id: "nutr", ko: "영양", en: "Nutrition", tab: true, ev: "B", spark: "intake",
+    rule: ["섭취량 <85% → 주의, <70% → 조치 (데모 임계값)", "Intake <85% → Watch; <70% → Act (demo thresholds)"],
+    src: [S("NASA HRP Risks — Food and nutrition page", HRP)],
+    eval: (s) => ({ lvl: s.intake < 70 ? 2 : s.intake < 85 ? 1 : 0, msg: [`섭취 ${s.intake}%`, `Intake ${s.intake}%`] }),
+    acts: [null, ["식단 보충 계획 확인", "Review supplemental food plan"], ["지상 영양 담당에 보고", "Report to ground nutrition support"], null] },
+  { id: "imm", ko: "면역·감염", en: "Immune / infection", tab: true, ev: "B", spark: "temp",
+    rule: ["체온 +0.8°C → 주의, ≥38.0°C → 조치, ≥38.0°C + 심박 +20 + 의식 혼미 → 긴급(패혈증 의심 카드). 데모 임계값 — 임상 기준 아님",
+           "Temp +0.8 °C → Watch; ≥38.0 °C → Act; ≥38.0 °C + HR +20 + confusion → Emergency (suspected sepsis card). Demo thresholds — not clinical criteria"],
+    src: [S("NASA HRP Risks — Immune / host-microorganism pages", HRP)],
+    eval: (s, b) => {
+      const sep = s.temp >= 38 && s.hr - b.hr >= 20 && s.confusion;
+      const l = sep ? 3 : s.temp >= 38 ? 2 : s.temp - b.temp >= 0.8 ? 1 : 0;
+      return { lvl: l, msg: [`체온 ${s.temp}°C (내 평균 ${b.temp.toFixed(1)})`, `Temp ${s.temp} °C (baseline ${b.temp.toFixed(1)})`] };
+    },
+    acts: [null, ["체온·증상 4시간 후 재측정", "Re-measure temp/symptoms in 4 h"], ["접촉 최소화, 지상 의료진 연락", "Limit contact; contact ground flight surgeon"], ["긴급 모드: 감염 악화 카드 실행", "Emergency mode: run the infection-worsening card"]] },
+  { id: "cv", ko: "심혈관", en: "Cardiovascular", tab: true, ev: "B", spark: "hr",
+    rule: ["안정 시 심박 내 평균 +10 → 주의, +20 또는 흉통 → 조치 (데모 임계값)", "Resting HR +10 vs baseline → Watch; +20 or chest pain → Act (demo thresholds)"],
+    src: [S("NASA HRP Risks — Cardiovascular page", HRP)],
+    eval: (s, b) => {
+      const d = s.hr - b.hr;
+      return { lvl: s.chest || d >= 20 ? 2 : d >= 10 ? 1 : 0, msg: [`심박 ${s.hr} (내 평균 ${b.hr.toFixed(0)})${s.chest ? " · 흉통" : ""}`, `HR ${s.hr} (baseline ${b.hr.toFixed(0)})${s.chest ? " · chest pain" : ""}`] };
+    },
+    acts: [null, ["휴식 후 재측정", "Rest and re-measure"], ["지상 의료진 연락 권고", "Contact ground flight surgeon"], null] },
+  { id: "bone", ko: "뼈", en: "Bone", tab: true, ev: "B", spark: null,
+    rule: ["통증 보고 → 주의, 통증 + 운동 <30분 → 조치 (데모)", "Pain reported → Watch; pain + exercise <30 min → Act (demo)"],
+    src: [S("NASA HRP Risks — Spaceflight-induced bone changes page", HRP)],
+    eval: (s) => ({ lvl: s.backpain ? (s.ex < 30 ? 2 : 1) : 0, msg: s.backpain ? ["통증 보고됨", "Pain reported"] : ["보고된 증상 없음", "No symptom reported"] }),
+    acts: [null, ["저항 운동 계획 확인", "Check resistive exercise plan"], ["지상 보고, 운동 프로토콜 점검", "Report to ground; review exercise protocol"], null] },
+  { id: "renal", ko: "신장 결석", en: "Renal stone", tab: false, ev: "B", spark: null,
+    rule: ["옆구리 심한 통증 → 조치 (데모). ※ Resources 탭 위험 목록에 없음 — 탭 외 NASA 자료", "Severe flank pain → Act (demo). NOT in the Resources-tab risk list — off-tab NASA material"],
+    src: [S("NASA human system risk pages (off-tab) — exact URL to be confirmed", null)],
+    eval: (s) => s.flank ? { lvl: 2, msg: ["심한 통증 보고됨", "Severe pain reported"] } : { lvl: 0, msg: ["보고된 증상 없음", "No symptom reported"] },
+    acts: [null, null, ["수분 섭취 기록, 지상 의료진 연락", "Log fluid intake; contact ground flight surgeon"], null] },
+  { id: "co2", ko: "CO₂ / 저산소", en: "CO₂ / hypoxia", tab: false, ev: "B", spark: "co2",
+    rule: ["내 평균 +2 mmHg 또는 두통 → 주의, +4 또는 (+2 & 두통) → 조치 (데모 — 실제 허용 한계 아님). ※ 탭 외 NASA 자료", "+2 mmHg vs baseline or headache → Watch; +4 or (+2 & headache) → Act (demo — NOT real exposure limits). Off-tab NASA material"],
+    src: [S("NASA human system risk pages (off-tab) — exact URL to be confirmed", null)],
+    eval: (s, b) => {
+      const d = s.co2 - b.co2;
+      const l = d >= 4 || (d >= 2 && s.headache) ? 2 : d >= 2 || s.headache ? 1 : 0;
+      return { lvl: l, msg: [`CO₂ ${s.co2} mmHg (내 평균 ${b.co2.toFixed(1)})${s.headache ? " · 두통" : ""}`, `CO₂ ${s.co2} mmHg (baseline ${b.co2.toFixed(1)})${s.headache ? " · headache" : ""}`] };
+    },
+    acts: [null, ["환기·CO₂ 측정 재확인", "Recheck ventilation / CO₂ reading"], ["지상 환경 담당에 보고, 작업 중단 검토", "Report to ground environment team; consider stopping work"], null] },
+  { id: "fit", ko: "심폐·근골격 체력", en: "Cardiorespiratory & musculoskeletal fitness", tab: true, ev: "B", spark: "ex",
+    rule: ["운동 <60분 → 주의, <30분 → 조치 (데모). 근거: ISS 승무원 평균 운동 약 1.5시간/일, 비행 후 근력·유산소 평균 10–12% 감소", "Exercise <60 min → Watch; <30 → Act (demo). Basis: ISS crews exercise ~1.5 h/day; average strength/aerobic losses of 10–12%"],
+    src: [S("NASA HRP Risks — Reduced cardiorespiratory & musculoskeletal fitness page", HRP)],
+    eval: (s) => ({ lvl: s.ex < 30 ? 2 : s.ex < 60 ? 1 : 0, msg: [`운동 ${s.ex}분`, `Exercise ${s.ex} min`] }),
+    acts: [null, ["오늘 운동 보충", "Make up exercise today"], ["운동 중단 사유 확인, 지상 보고", "Check why exercise stopped; report to ground"], null] },
+];
+
+/* ============ emergency scenarios (procedure = demo, evidence C) ============ */
+const SCEN = {
+  rad: {
+    ko: "방사선 이벤트 대피", en: "Radiation event — shelter",
+    trigger: ["지상/온보드 대피 지시 수신 (모의)", "Shelter instruction received (simulated)"],
+    steps: [
+      ["경보 출처 확인 (지상 / 온보드 모니터)", "Confirm the alert source (ground / onboard monitor)"],
+      ["임무 절차에 지정된 차폐 구역으로 이동", "Move to the shelter area designated by the mission procedure"],
+      ["시각 · 위치 · 동행 승무원 기록", "Log time, location and crew present"],
+      ["선량 측정값(있다면) 기록, 해제 지시 전까지 대기", "Record dosimeter reading if available; stay until cleared"],
+      ["해제 후 증상 확인 (구역질, 피로) 및 기록", "After clearance, check and log symptoms (nausea, fatigue)"],
+    ],
+    note: ["일반 절차를 모사한 데모입니다. 실제 임계값·구역은 임무 절차서가 우선합니다 [근거 수준 C]", "Generic demo procedure. Real thresholds/locations follow mission procedures [evidence C]"],
+  },
+  sepsis: {
+    ko: "감염 악화 (패혈증 의심)", en: "Infection worsening (suspected sepsis)",
+    trigger: ["고열 + 심박 상승 + 의식 혼미", "Fever + raised HR + confusion"],
+    steps: [
+      ["체온·심박·의식 상태 재측정 (15분 간격)", "Re-measure temp, HR, mental status (every 15 min)"],
+      ["다른 승무원과 접촉 최소화", "Limit contact with other crew"],
+      ["임무 의료 키트의 감염 의심 절차서 열기 (이 카드는 처치를 지시하지 않음)", "Open the onboard medical checklist for suspected infection (this card does not prescribe treatment)"],
+      ["증상 시작 시각과 경과 기록", "Log symptom onset time and progression"],
+    ],
+    note: ["진단·처치 도구가 아닙니다. 지상 의료진 지원이 핵심입니다 [근거 수준 C]", "Not a diagnostic/treatment tool. Ground medical support is the key step [evidence C]"],
+  },
+  eye: {
+    ko: "눈 화학물질 노출", en: "Chemical eye exposure",
+    trigger: ["눈에 화학물질 / 심한 눈 통증 보고", "Chemical in eye / severe eye pain reported"],
+    steps: [
+      ["즉시 눈 세척 시작 (눈 세척 키트·물), 중단 없이 계속", "Start flushing the eye immediately (eyewash kit / water) and keep going"],
+      ["눈을 비비지 않기, 가능하면 콘택트렌즈 제거", "Do not rub the eye; remove contact lenses if possible"],
+      ["물질 종류 확인 (라벨·안전자료) 및 기록", "Identify the substance (label / safety data) and log it"],
+      ["세척 후 통증·시야 재평가", "Re-assess pain and vision after flushing"],
+    ],
+    note: ["일반 응급처치 수준의 데모 절차입니다. NASA 전용 절차는 확인하지 못했습니다 [미확인 · 근거 수준 C]", "Generic first-aid demo. NASA-specific procedure not verified [unverified · evidence C]"],
+  },
+};
+const SC_ORDER = ["rad", "sepsis", "eye"];
+
+/* ============ synthetic proton flux (NOT real data) ============ */
+const FLUX = Array.from({ length: 48 }, (_, t) => {
+  if (t < 14) return 0.2;
+  if (t <= 20) return 0.2 * Math.pow(10, ((t - 14) / 6) * Math.log10(150 / 0.2));
+  return Math.max(0.2, 150 * Math.exp(-(t - 20) / 5));
+});
+
+/* ============ app state ============ */
+const state = {
+  mode: "care", s: {}, t: 0, playing: false, timer: null,
+  manual: {}, acked: {}, done: {}, t0: {}, prevActive: [], sel: null, comms: "yes", auto: false, ev: null,
+};
+
+function readState() {
+  const s = {};
+  for (const k in NUM) s[k] = parseFloat($("#f-" + k).value) || 0;
+  for (const k in FLAGS) s[k] = $("#g-" + k).checked;
+  s.shelter = $("#g-shelter") ? $("#g-shelter").checked : false;
+  state.s = s;
+  state.t = parseInt($("#tSlider").value, 10);
+}
+
+function evaluate() {
+  const s = state.s, b = BASE, ctx = { flux: FLUX[state.t] };
+  const tiles = RISKS.map((r) => ({ r, ...r.eval(s, b, ctx) }));
+  const detected = [];
+  if (s.shelter) detected.push("rad");
+  if (s.temp >= 38 && s.hr - b.hr >= 20 && s.confusion) detected.push("sepsis");
+  if (s.eyesplash) detected.push("eye");
+  const scen = SC_ORDER.filter((k) => detected.includes(k) || state.manual[k]);
+  let max = Math.max(...tiles.map((x) => x.lvl));
+  if (s.eyesplash) max = 3;
+  if (state.manual && Object.keys(state.manual).some((k) => state.manual[k])) max = 3;
+  return { tiles, detected, scen, max, flux: ctx.flux };
+}
+
+/* ============ update loop ============ */
+function update() {
+  readState();
+  const ev = evaluate();
+  state.ev = ev;
+  for (const k of Object.keys(state.acked)) if (!ev.detected.includes(k)) delete state.acked[k];
+  for (const k of Object.keys(state.done)) if (!ev.scen.includes(k)) { delete state.done[k]; delete state.t0[k]; }
+  for (const k of ev.scen) if (!state.t0[k]) state.t0[k] = Date.now();
+  const active = ev.scen.filter((k) => !state.acked[k]);
+  const fresh = active.filter((k) => !state.prevActive.includes(k));
+  if (fresh.length && state.mode !== "respond") { state.mode = "respond"; state.auto = true; }
+  else if (!fresh.length && state.mode === "respond" && !active.length) { /* stay until user leaves */ }
+  state.prevActive = active.slice();
+  if (!active.includes(state.sel)) state.sel = active[0] || null;
+  render();
+}
+
+/* ============ rendering ============ */
+function sparkSVG(series, base, lvl) {
+  const w = 220, h = 34, mn = Math.min(...series, base), mx = Math.max(...series, base);
+  const rg = mx - mn || 1, x = (i) => (i / (series.length - 1)) * w, y = (v) => h - 3 - ((v - mn) / rg) * (h - 6);
+  const pts = series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const c = ["var(--l0)", "var(--l1)", "var(--l2)", "var(--l3)"][lvl];
+  return `<svg class="sp" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="30-day trend">
+    <line x1="0" x2="${w}" y1="${y(base).toFixed(1)}" y2="${y(base).toFixed(1)}" stroke="var(--mute)" stroke-dasharray="3 3" stroke-width="1"/>
+    <polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function renderCare() {
+  const ev = state.ev, s = state.s;
+  const lvlName = (l) => LV[lang][l];
+  $("#overall").innerHTML = `<span class="dot" style="background:var(--l${ev.max})"></span>
+    <span>${T("종합 상태", "Overall status")}: <span class="b${ev.max}">${ICON[ev.max]} ${lvlName(ev.max)}</span></span>`;
+  const top = ev.tiles.filter((x) => x.lvl === ev.max && ev.max > 0).map((x) => (lang === "ko" ? x.r.ko : x.r.en));
+  $("#overallNote").textContent = ev.max === 0
+    ? T("모든 지표가 내 기준선 범위 안에 있습니다.", "All indicators are within your personal baseline range.")
+    : T("가장 높은 단계: ", "Highest level: ") + (top.join(", ") || T("긴급 시나리오", "emergency scenario"));
+  $("#tiles").innerHTML = ev.tiles.map(({ r, lvl, msg }) => {
+    const act = r.acts[lvl];
+    const series = r.spark ? HIST[r.spark].concat([s[r.spark]]) : null;
+    return `<div class="tile l${lvl}">
+      <h3><span>${esc(lang === "ko" ? r.ko : r.en)}</span><span class="badge b${lvl}">${ICON[lvl]} ${lvlName(lvl)}</span></h3>
+      <p>${esc(lang === "ko" ? msg[0] : msg[1])}</p>
+      ${act ? `<p class="act">→ ${esc(lang === "ko" ? act[0] : act[1])}</p>` : ""}
+      ${series ? sparkSVG(series, BASE[r.spark], lvl) : ""}
+      <div class="tag">${T("근거 수준", "Evidence")} ${r.ev}${r.tab ? "" : " · " + T("탭 외 NASA 자료", "off-tab NASA source")}</div>
+    </div>`;
+  }).join("");
+  // radiation chart
+  const w = 300, h = 120, lx = (i) => 10 + (i / 47) * (w - 20), ly = (f) => h - 14 - ((Math.log10(f) + 1) / 4) * (h - 28);
+  const pts = FLUX.map((f, i) => `${lx(i).toFixed(1)},${ly(f).toFixed(1)}`).join(" ");
+  $("#radChart").innerHTML = `
+    <line x1="10" x2="${w - 10}" y1="${ly(10)}" y2="${ly(10)}" stroke="var(--l2)" stroke-dasharray="4 3"/>
+    <text x="${w - 12}" y="${ly(10) - 3}" font-size="8" text-anchor="end" fill="var(--l2)">10 pfu (NOAA S1 event definition)</text>
+    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <line x1="${lx(state.t)}" x2="${lx(state.t)}" y1="6" y2="${h - 14}" stroke="var(--text)" stroke-width="1"/>
+    <circle cx="${lx(state.t)}" cy="${ly(FLUX[state.t])}" r="4" fill="${ev.flux >= 10 ? "var(--l2)" : "var(--l0)"}"/>
+    <text x="10" y="${h - 3}" font-size="8" fill="var(--mute)">0 h</text><text x="${w - 28}" y="${h - 3}" font-size="8" fill="var(--mute)">47 h</text>`;
+  $("#tLabel").textContent = `${state.t} h · ${FLUX[state.t].toFixed(1)} pfu`;
+  // acknowledged-but-still-active banner
+  const ackd = ev.detected.filter((k) => state.acked[k]);
+  let bn = "";
+  if (state.mode !== "respond" && ev.scen.some((k) => !state.acked[k])) {
+    bn = `<div class="banner l3"><b>${T("긴급 상황이 활성 상태입니다", "An emergency is active")}</b> — <button id="goRespond" class="alert">${T("대응 모드로 이동", "Go to Respond mode")}</button></div>`;
+  } else if (ackd.length) {
+    bn = `<div class="banner">${T("확인된 긴급 조건이 아직 유지 중입니다: ", "Acknowledged emergency condition still present: ")}${ackd.map((k) => esc(T(SCEN[k].ko, SCEN[k].en))).join(", ")}</div>`;
+  }
+  return bn;
+}
+
+function reportText(k) {
+  const sc = SCEN[k], s = state.s, ev = state.ev;
+  const done = state.done[k] || {};
+  const el = Math.max(0, Math.floor((Date.now() - (state.t0[k] || Date.now())) / 1000));
+  const mm = String(Math.floor(el / 60)).padStart(2, "0"), ss = String(el % 60).padStart(2, "0");
+  const stepsEn = sc.steps.map((st, i) => `  [${done[i] ? "x" : " "}] ${st[1]}`).join("\n");
+  const flags = ev.tiles.filter((x) => x.lvl >= 1).map((x) => `${x.r.en}: ${LV.en[x.lvl]}`).join("; ") || "none";
+  const f = (key, unit) => `${key} ${s[key]}${unit} (baseline ${BASE[key].toFixed(NUM[key].dec)})`;
+  return [
+    "[SIMULATED DATA - PROTOTYPE - NOT FOR CLINICAL USE]",
+    `GROUND REPORT: ${sc.en}`,
+    "Crew: A (simulated)    MET: Day 30 (simulated)",
+    `Time since alert: ${mm}:${ss}`,
+    `Trigger: ${sc.trigger[1]}${state.manual[k] ? " (manually started)" : ""}`,
+    `Comms: ${state.comms === "yes" ? "ground available - requesting support" : "ground unavailable - self-managed, retry comms periodically"}`,
+    "Today vs personal baseline:",
+    `  ${f("hr", " bpm")}; ${f("temp", " C")}; ${f("sleep", " h")}`,
+    `  Symptoms checked: ${Object.keys(FLAGS).filter((x) => s[x]).map((x) => FLAGS[x].en).join(", ") || "none"}`,
+    `Active risk flags: ${flags}`,
+    "Steps:", stepsEn,
+    state.comms === "yes" ? "Request: guidance on next steps; confirm whether further action is needed." : "Request: (queued) send when comms resume.",
+  ].join("\n");
+}
+
+function renderRespond() {
+  const ev = state.ev, active = ev.scen.filter((k) => !state.acked[k]);
+  const root = $("#viewRespond");
+  if (!active.length) {
+    root.innerHTML = `<div class="card"><h2>${T("활성 긴급 상황 없음", "No active emergency")}</h2>
+      <p class="mute">${T("긴급 단계가 되면 이 화면으로 자동 전환됩니다. 아래에서 수동으로 시작할 수도 있습니다.", "This screen opens automatically at Emergency level. You can also start a card manually below.")}</p>
+      <div class="presets">${SC_ORDER.map((k) => `<button data-manual="${k}">${esc(T(SCEN[k].ko, SCEN[k].en))}</button>`).join("")}</div></div>`;
+    return;
+  }
+  const k = state.sel || active[0], sc = SCEN[k];
+  const done = state.done[k] || (state.done[k] = {});
+  const n = sc.steps.length, cnt = sc.steps.filter((_, i) => done[i]).length;
+  const commsSteps = state.comms === "yes"
+    ? [["지상에 보고서 전송 후 지시 확인", "Send the ground report below and confirm instructions"]]
+    : [["온보드 절차 계속, 15분마다 활력징후 재기록", "Continue onboard procedure; re-log vitals every 15 min"], ["30분마다 교신 재시도 (보고서는 준비됨)", "Retry comms every 30 min (report is ready)"]];
+  const all = sc.steps.concat(commsSteps);
+  const total = all.length, doneAll = all.filter((_, i) => done[i]).length;
+  root.innerHTML = `
+    ${state.auto ? `<div class="banner l3">${T("긴급 단계 감지 → 대응 모드로 자동 전환되었습니다.", "Emergency level detected → switched to Respond mode automatically.")}</div>` : ""}
+    <div class="card" style="border-color:var(--l3)">
+      <div class="overall"><span class="dot" style="background:var(--l3)"></span><span class="b3">■ ${LV[lang][3]}</span><span>· ${esc(T(sc.ko, sc.en))}</span></div>
+      <div class="mute" style="font-size:13px">${T("트리거", "Trigger")}: ${esc(T(sc.trigger[0], sc.trigger[1]))} · ${T("경과", "Elapsed")} <b id="elapsed">00:00</b></div>
+      ${active.length > 1 ? `<div class="chips">${active.map((a) => `<button data-sel="${a}" class="${a === k ? "on" : ""}">${esc(T(SCEN[a].ko, SCEN[a].en))}</button>`).join("")}</div>` : ""}
+    </div>
+    <div class="grid2">
+      <div>
+        <div class="card">
+          <h2>${T("① 지상 교신", "① Ground contact")}</h2>
+          <div class="presets">
+            <button data-comms="yes" class="${state.comms === "yes" ? "on" : ""}">${T("교신 가능 → 지상 요청", "Available → request ground")}</button>
+            <button data-comms="no" class="${state.comms === "no" ? "on" : ""}">${T("교신 불가 → 자체 대응", "Unavailable → self-manage")}</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>${T("② 단계별 체크리스트", "② Step checklist")} (${doneAll}/${total})</h2>
+          <progress max="${total}" value="${doneAll}"></progress>
+          <ul class="steps">${all.map((st, i) => `<li class="${done[i] ? "done" : ""}"><input type="checkbox" data-step="${i}" id="st${i}" ${done[i] ? "checked" : ""}><label for="st${i}">${esc(T(st[0], st[1]))}</label></li>`).join("")}</ul>
+          <p class="mute" style="font-size:12px">${esc(T(sc.note[0], sc.note[1]))}</p>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>${T("③ 지상 보고 요약 (영문, 복사용)", "③ Ground report summary (copy-ready)")}</h2>
+          <textarea id="report" readonly aria-label="report">${esc(reportText(k))}</textarea>
+          <div class="presets" style="margin-top:8px"><button id="copyBtn">${T("새로고침 후 복사", "Refresh & copy")}</button><span id="copyMsg" class="mute" style="font-size:12px"></span></div>
+        </div>
+        <div class="card"><button id="standDown" class="alert">${T("상황 종료 · 일반 모드로 복귀", "Stand down · back to Care mode")}</button></div>
+      </div>
+    </div>`;
+  tickElapsed();
+}
+
+function tickElapsed() {
+  const k = state.sel, el = $("#elapsed");
+  if (!el || !k || !state.t0[k]) return;
+  const s = Math.floor((Date.now() - state.t0[k]) / 1000);
+  el.textContent = String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+
+function renderEvidence() {
+  const rows = RISKS.map((r) => `<tr>
+    <td><b>${esc(T(r.ko, r.en))}</b></td>
+    <td>${esc(T(r.rule[0], r.rule[1]))}</td>
+    <td>${r.ev}</td>
+    <td>${r.tab ? T("탭", "tab") : "<b>" + T("탭 외", "off-tab") + "</b>"}</td>
+    <td>${r.src.map((x) => x.url ? `<a href="${x.url}" target="_blank" rel="noopener">${esc(x.name)}</a>` : esc(x.name)).join("<br>")}</td></tr>`).join("");
+  const srows = SC_ORDER.map((k) => `<tr><td><b>${esc(T(SCEN[k].ko, SCEN[k].en))}</b></td><td>${esc(T(SCEN[k].note[0], SCEN[k].note[1]))}</td><td>C</td></tr>`).join("");
+  $("#viewEvidence").innerHTML = `
+  <div class="card"><h2>${T("근거 수준 범례", "Evidence-level legend")}</h2>
+    <p><b>A</b> ${T("임계값과 행동 모두 출처 확인 — 현재 0개 (아직 어떤 규칙도 여기에 해당하지 않습니다)", "threshold AND action sourced — currently 0 rules qualify")}<br>
+    <b>B</b> ${T("위험 자체는 NASA 자료로 확인, 임계값은 데모용 값", "risk sourced from NASA material; threshold is a demo value")}<br>
+    <b>C</b> ${T("데모 절차 (일반 응급처치 수준, 임무 절차서 아님)", "demo procedure (generic first-aid level, not a mission procedure)")}</p></div>
+  <div class="card scroll"><h2>${T("위험 레지스터 (10개)", "Risk register (10)")}</h2>
+    <table><tr><th>${T("위험", "Risk")}</th><th>${T("규칙 (데모)", "Rule (demo)")}</th><th>${T("수준", "Level")}</th><th>${T("출처 위치", "Source")}</th><th>${T("링크", "Links")}</th></tr>${rows}</table></div>
+  <div class="card scroll"><h2>${T("긴급 시나리오 (3개)", "Emergency scenarios (3)")}</h2>
+    <table><tr><th>${T("시나리오", "Scenario")}</th><th>${T("비고", "Note")}</th><th>${T("수준", "Level")}</th></tr>${srows}</table></div>
+  <div class="card"><h2>${T("미확인 · 한계", "Unverified · limitations")}</h2>
+    <ul>
+      <li>${T("모든 승무원 데이터와 방사선 곡선은 합성(모의)입니다. 실제 RadLab/NOAA 재생은 아직 연결하지 않았습니다 (RadLab 범위·단위 미확인).", "All crew data and the radiation curve are synthetic. Real RadLab / NOAA replay is not connected yet (RadLab coverage/units unverified).")}</li>
+      <li>${T("임계값은 전부 데모 값입니다. NASA의 실제 의료 기준이 아닙니다.", "All thresholds are demo values, not NASA medical criteria.")}</li>
+      <li>${T("신장 결석·CO₂는 Resources 탭 위험 목록 밖의 NASA 자료이며, 정확한 URL은 아직 확인하지 못했습니다.", "Renal stone and CO₂ come from NASA material outside the Resources-tab risk list; exact URLs are not yet confirmed.")}</li>
+      <li>${T("의사결정 보조 도구이며 진단 도구가 아닙니다. NASA와 제휴하지 않았습니다.", "Decision support only, not a diagnostic tool. Not affiliated with NASA.")}</li>
+      <li>${T("AI 사용 공개: 이 프로토타입의 초안은 Claude(Anthropic)가 작성했습니다. 제출 시 대회의 AI 사용 공개 항목에 기재해야 합니다.", "AI disclosure: the first draft of this prototype was written with Claude (Anthropic). Declare it in the challenge's AI-use field on submission.")}</li>
+    </ul></div>`;
+}
+
+function render() {
+  const bn = renderCare();
+  $("#bannerBox").innerHTML = bn;
+  const g = $("#goRespond"); if (g) g.onclick = () => { state.mode = "respond"; state.auto = false; render(); };
+  renderRespond(); renderEvidence();
+  $("#viewCare").classList.toggle("hide", state.mode !== "care");
+  $("#viewRespond").classList.toggle("hide", state.mode !== "respond");
+  $("#viewEvidence").classList.toggle("hide", state.mode !== "evidence");
+  document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.mode === state.mode));
+  const hasActive = state.ev.scen.some((k) => !state.acked[k]);
+  $("#tabRespond").classList.toggle("alert", hasActive && state.mode !== "respond");
+}
+
+/* ============ static text + form build ============ */
+function buildForm() {
+  $("#numFields").innerHTML = Object.keys(NUM).map((k) => {
+    const n = NUM[k];
+    return `<div class="row"><label for="f-${k}"><span data-lbl="${k}"></span><small><span data-base="${k}"></span></small></label>
+      <input type="number" id="f-${k}" min="${n.min}" max="${n.max}" step="${n.step}" value="${n.def}"></div>`;
+  }).join("");
+  $("#flagFields").innerHTML = Object.keys(FLAGS).map((k) => `<label><input type="checkbox" id="g-${k}"><span data-flag="${k}"></span></label>`).join("")
+    + `<label><input type="checkbox" id="g-shelter"><span id="shelterLbl"></span></label>`;
+}
+function applyLang() {
+  document.documentElement.lang = lang;
+  $("#sub").textContent = T("우주비행사 건강 모니터링 · 프로토타입", "Astronaut health monitoring · prototype");
+  $("#disc").textContent = T("모의(합성) 데이터입니다. 의사결정 보조 도구이며 진단 도구가 아닙니다. NASA와 제휴하지 않았습니다. 임계값은 데모 값입니다.", "Simulated (synthetic) data. Decision support, not a diagnostic tool. Not affiliated with NASA. Thresholds are demo values.");
+  $("#tabCare").textContent = T("일반 모드 · Care", "Care mode");
+  $("#tabRespond").textContent = T("긴급 모드 · Respond", "Respond mode");
+  $("#tabEvidence").textContent = T("근거 · Evidence", "Evidence");
+  $("#hCheckin").textContent = T("오늘의 체크인 (승무원 A, 모의)", "Daily check-in (Crew A, simulated)");
+  $("#hPresets").textContent = T("시나리오 불러오기", "Load a scenario");
+  $("#hRad").textContent = T("방사선 이벤트 재생 (합성 곡선)", "Radiation event replay (synthetic curve)");
+  $("#playBtn").textContent = state.playing ? T("일시정지", "Pause") : T("재생", "Play");
+  $("#resetBtn").textContent = T("처음으로", "Reset");
+  $("#radNote").textContent = T("합성 곡선입니다. 10 pfu 선은 NOAA S1의 '이벤트 시작·종료' 정의이며 행동 기준이 아닙니다.", "Synthetic curve. The 10 pfu line is NOAA S1's event start/end definition, not an action threshold.");
+  $("#shelterLbl").textContent = T("시뮬레이션: 대피 지시 수신", "Simulation: shelter instruction received");
+  document.querySelectorAll("[data-lbl]").forEach((e) => (e.textContent = T(NUM[e.dataset.lbl].ko, NUM[e.dataset.lbl].en)));
+  document.querySelectorAll("[data-base]").forEach((e) => (e.textContent = T("내 평균 ", "baseline ") + BASE[e.dataset.base].toFixed(NUM[e.dataset.base].dec === 0 ? 0 : 1)));
+  document.querySelectorAll("[data-flag]").forEach((e) => (e.textContent = T(FLAGS[e.dataset.flag].ko, FLAGS[e.dataset.flag].en)));
+  $("#presets").innerHTML = PRESETS.map((p, i) => `<button data-preset="${i}">${esc(T(p.ko, p.en))}</button>`).join("");
+}
+
+const PRESETS = [
+  { ko: "정상", en: "Normal day", set: {} },
+  { ko: "수면 부족 + 스트레스", en: "Poor sleep + stress", set: { sleep: 4.5, stress: 4, hr: 70 } },
+  { ko: "열 + 심박 상승", en: "Fever + raised HR", set: { temp: 38.2, hr: 78 } },
+  { ko: "감염 악화 (긴급)", en: "Infection worsening (emergency)", set: { temp: 38.6, hr: 90, confusion: true, ex: 20, intake: 60 } },
+  { ko: "방사선 이벤트 (22h)", en: "Radiation event (22 h)", set: { _t: 22 } },
+  { ko: "대피 지시 (긴급)", en: "Shelter instruction (emergency)", set: { _t: 22, shelter: true } },
+  { ko: "눈 화학물질 (긴급)", en: "Chemical in eye (emergency)", set: { eyesplash: true } },
+];
+function applyPreset(i) {
+  stopPlay();
+  for (const k in NUM) $("#f-" + k).value = NUM[k].def;
+  for (const k in FLAGS) $("#g-" + k).checked = false;
+  $("#g-shelter").checked = false;
+  $("#tSlider").value = 0;
+  const set = PRESETS[i].set;
+  for (const k in set) {
+    if (k === "_t") $("#tSlider").value = set[k];
+    else if (k === "shelter" || FLAGS[k]) (k === "shelter" ? $("#g-shelter") : $("#g-" + k)).checked = set[k];
+    else $("#f-" + k).value = set[k];
+  }
+  state.manual = {}; state.acked = {}; state.done = {}; state.t0 = {}; state.prevActive = []; state.auto = false; state.mode = "care";
+  update();
+}
+
+/* ============ radiation replay ============ */
+function stopPlay() { state.playing = false; clearInterval(state.timer); $("#playBtn").textContent = T("재생", "Play"); }
+function togglePlay() {
+  if (state.playing) return stopPlay();
+  if (parseInt($("#tSlider").value, 10) >= 47) $("#tSlider").value = 0;
+  state.playing = true; $("#playBtn").textContent = T("일시정지", "Pause");
+  state.timer = setInterval(() => {
+    const v = parseInt($("#tSlider").value, 10) + 1;
+    if (v > 47) return stopPlay();
+    $("#tSlider").value = v; update();
+  }, 350);
+}
+
+/* ============ events ============ */
+function init() {
+  buildForm(); applyLang();
+  $("#numFields").addEventListener("input", update);
+  $("#flagFields").addEventListener("change", update);
+  $("#tSlider").addEventListener("input", () => { stopPlay(); update(); });
+  $("#playBtn").onclick = togglePlay;
+  $("#resetBtn").onclick = () => { stopPlay(); $("#tSlider").value = 0; update(); };
+  $("#nav").addEventListener("click", (e) => { const b = e.target.closest("button[data-mode]"); if (b) { state.mode = b.dataset.mode; state.auto = false; render(); } });
+  $("#presets").addEventListener("click", (e) => { const b = e.target.closest("[data-preset]"); if (b) applyPreset(+b.dataset.preset); });
+  $("#langBtn").onclick = () => { lang = lang === "ko" ? "en" : "ko"; applyLang(); if (state.ev) render(); };
+  $("#viewRespond").addEventListener("click", (e) => {
+    const t = e.target;
+    if (t.dataset.manual) { state.manual[t.dataset.manual] = true; state.sel = t.dataset.manual; state.auto = false; return update(); }
+    if (t.dataset.sel) { state.sel = t.dataset.sel; return render(); }
+    if (t.dataset.comms) { state.comms = t.dataset.comms; return render(); }
+    if (t.id === "copyBtn") {
+      const k = state.sel; $("#report").value = reportText(k);
+      const txt = $("#report").value;
+      const msg = (m) => { const el = $("#copyMsg"); if (el) el.textContent = m; };
+      const manual = () => { const r = $("#report"); if (r) r.select(); msg(T("직접 복사하십시오 (Ctrl+C)", "Select and copy (Ctrl+C)")); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(() => msg(T("복사했습니다", "Copied")), manual);
+      else manual();
+      return;
+    }
+    if (t.id === "standDown") {
+      const k = state.sel; delete state.manual[k];
+      if (state.ev.detected.includes(k)) state.acked[k] = true;
+      delete state.done[k]; delete state.t0[k]; state.auto = false; state.mode = "care"; return update();
+    }
+  });
+  $("#viewRespond").addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset.step !== undefined) { const k = state.sel; state.done[k] = state.done[k] || {}; state.done[k][t.dataset.step] = t.checked; render(); }
+  });
+  setInterval(tickElapsed, 1000);
+  update();
+}
+init();
+</script>
+</body>
+</html>

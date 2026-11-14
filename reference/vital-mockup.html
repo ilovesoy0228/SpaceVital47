@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>우주민 Vital 목업</title>
+<style>
+  :root{
+    --bg:#05070a; --panel:#0b0f14; --line:#1d2630; --grid:#16202a; --text:#e6edf3; --muted:#8b98a5;
+    /* 채널 색 = 지표 식별용. 단계(stage)는 색이 아니라 * / ** / *** 표식 + 아이콘 + 글자로 표시 */
+    --hr:#3ddc84; --temp:#ff9f43; --rad:#f5d547; --sleep:#4dd0e1; --co2:#e6edf3; --cam:#d68cff;
+    --s1:#f5d547; --s2:#ff9f43; --s3:#ff4d4d;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:12px 16px 32px}
+
+  /* 알람 배너: 모니터 상단 "*** TACHY" 자리 */
+  .alarm{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:4px;font-weight:700;
+         background:var(--s2);color:#111}
+  .alarm .pri{font-family:var(--mono);font-size:18px;letter-spacing:2px}
+  .alarm .msg{flex:1;min-width:0}
+  .alarm button{background:#111;color:var(--text);border:0;border-radius:3px;padding:6px 10px;font-weight:600}
+
+  .hdr{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;margin:10px 0 12px;color:var(--muted);font-family:var(--mono);font-size:12px}
+  .hdr b{color:var(--text);font-family:inherit;font-size:16px}
+  .tag{border:1px solid var(--line);padding:1px 6px;border-radius:3px}
+  .tag.warn{border-color:var(--s1);color:var(--s1)}
+
+  .grid{display:grid;grid-template-columns:1fr 240px;gap:1px;background:var(--line);border:1px solid var(--line)}
+  .ch{display:contents}
+  .wave,.num{background:var(--panel);padding:8px 10px;position:relative}
+  .wave .lbl{position:absolute;top:6px;left:10px;font-family:var(--mono);font-size:12px;font-weight:700}
+  .wave .src{position:absolute;top:6px;right:10px;font-size:11px;color:var(--muted)}
+  .wave svg{display:block;width:100%;height:96px;margin-top:14px}
+  .num{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr auto;column-gap:10px}
+  .num .name{grid-column:1/3;font-family:var(--mono);font-size:12px;font-weight:700}
+  .num .lim{font-family:var(--mono);font-size:11px;color:var(--muted);align-self:center;line-height:1.3}
+  .num .val{font-family:var(--mono);font-size:44px;font-weight:700;text-align:right;line-height:1;align-self:center}
+  .num .val small{font-size:14px;font-weight:400;color:var(--muted);margin-left:2px}
+  .num .st{grid-column:1/3;font-size:12px;display:flex;gap:6px;align-items:center;min-height:18px}
+  .st .pri{font-family:var(--mono);font-weight:700}
+  .st.s0{color:var(--muted)} .st.s1{color:var(--s1)} .st.s2{color:var(--s2)} .st.s3{color:var(--s3)}
+
+  /* 작은 수치 상자: 모니터 오른쪽 하단 열 */
+  .mini{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-top:0}
+  .mini div{background:var(--panel);padding:8px 10px}
+  .mini .name{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .mini .v{font-family:var(--mono);font-size:24px;font-weight:700}
+  .mini .st{font-size:11px}
+
+  .notes{margin-top:16px;color:var(--muted);font-size:12px}
+  .notes li{margin:2px 0}
+
+  @media (max-width:720px){
+    .grid{grid-template-columns:1fr}
+    .num{order:-1}
+    .ch{display:flex;flex-direction:column}
+    .grid{display:flex;flex-direction:column;gap:1px}
+    .num{border-top:1px solid var(--line)}
+    .mini{grid-template-columns:repeat(2,1fr)}
+    .num .val{font-size:38px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="alarm" role="alert">
+    <span class="pri" aria-hidden="true">**</span>
+    <span aria-hidden="true">▲</span>
+    <span class="msg">조치 · 방사선 합성 플럭스 ≥10 pfu · 수면 기준선 −2.1h</span>
+    <button>확인</button>
+  </div>
+
+  <div class="hdr">
+    <b>우주민</b><span>CREW-A · MISSION DAY 30</span>
+    <span class="tag warn">SIMULATED DATA</span><span class="tag warn">DEMO THRESHOLDS</span>
+    <span class="tag">기준선 = D1–D14 평균</span><span class="tag">Not affiliated with NASA</span>
+  </div>
+
+  <div class="grid">
+    <div class="ch">
+      <div class="wave"><span class="lbl" style="color:var(--rad)">RAD · 합성 플럭스 재생 (log)</span><span class="src">근거 B · NOAA 스케일</span><svg id="w-rad" preserveAspectRatio="none"></svg></div>
+      <div class="num"><span class="name" style="color:var(--rad)">RAD pfu</span><span class="lim">ACT 10<br>EMG 대피지시</span><span class="val" id="v-rad" style="color:var(--rad)">--</span><span class="st" id="s-rad"></span></div>
+    </div>
+    <div class="ch">
+      <div class="wave"><span class="lbl" style="color:var(--hr)">HR · 안정 심박 30일 추세</span><span class="src">근거 B · 데모 임계값</span><svg id="w-hr" preserveAspectRatio="none"></svg></div>
+      <div class="num"><span class="name" style="color:var(--hr)">HR bpm</span><span class="lim">BASE 64<br>+10 / +20</span><span class="val" style="color:var(--hr)">74</span><span class="st s1"><span class="pri">*</span>● 주의 · 기준선 +10</span></div>
+    </div>
+    <div class="ch">
+      <div class="wave"><span class="lbl" style="color:var(--sleep)">SLEEP · 수면 30일 추세</span><span class="src">근거 B · 데모 임계값</span><svg id="w-sleep" preserveAspectRatio="none"></svg></div>
+      <div class="num"><span class="name" style="color:var(--sleep)">SLEEP h</span><span class="lim">BASE 7.2<br>−1 / −2</span><span class="val" style="color:var(--sleep)">5.1</span><span class="st s2"><span class="pri">**</span>▲ 조치 · 기준선 −2.1h</span></div>
+    </div>
+    <div class="ch">
+      <div class="wave"><span class="lbl" style="color:var(--temp)">TEMP · 체온 30일 추세</span><span class="src">근거 B · 데모 임계값</span><svg id="w-temp" preserveAspectRatio="none"></svg></div>
+      <div class="num"><span class="name" style="color:var(--temp)">TEMP °C</span><span class="lim">BASE 36.6<br>+0.8 / 38.0</span><span class="val" style="color:var(--temp)">36.8</span><span class="st s0">○ 정상</span></div>
+    </div>
+    <div class="ch">
+      <div class="wave"><span class="lbl" style="color:var(--co2)">CO₂ · 선실 ppCO₂ 30일 추세</span><span class="src">임계값 근거 [미확인]</span><svg id="w-co2" preserveAspectRatio="none"></svg></div>
+      <div class="num"><span class="name" style="color:var(--co2)">ppCO₂ mmHg</span><span class="lim">BASE 2.6<br>+2 / +4</span><span class="val" style="color:var(--co2)">3.1</span><span class="st s0">○ 정상</span></div>
+    </div>
+    <div class="ch">
+      <div class="wave"><span class="lbl" style="color:var(--cam)">CAM · 카메라 G채널 원신호 (보조)</span><span class="src">정확도 미검증</span><svg id="w-cam" preserveAspectRatio="none"></svg></div>
+      <div class="num"><span class="name" style="color:var(--cam)">CAM HR bpm</span><span class="lim">보조 참고값<br>품질 게이트</span><span class="val" style="color:var(--cam)">--</span><span class="st s0">✕ 측정 불가 · 신호 품질 미달</span></div>
+    </div>
+  </div>
+
+  <div class="mini">
+    <div><div class="name">영양 섭취</div><div class="v">92<small>%</small></div><div class="st s0">○ 정상</div></div>
+    <div><div class="name">운동</div><div class="v">45<small>분</small></div><div class="st s1"><b>*</b> ● 주의</div></div>
+    <div><div class="name">스트레스</div><div class="v">+1</div><div class="st s1"><b>*</b> ● 주의</div></div>
+    <div><div class="name">시야 변화</div><div class="v">없음</div><div class="st s0">○ 정상</div></div>
+    <div><div class="name">붉기 Δa*</div><div class="v">+0.8</div><div class="st s0">○ 카메라 참고</div></div>
+  </div>
+
+  <ul class="notes">
+    <li>단계 표식: <b>*</b> 주의 / <b>**</b> 조치 / <b>***</b> 긴급 — 색과 무관하게 읽힘.</li>
+    <li>파형은 실제로 가진 신호만: 방사선 재생 곡선, 일일 체크인 추세, 카메라 원신호. 심전도·SpO₂·혈압 파형은 측정하지 않으므로 그리지 않음.</li>
+    <li>점선 = 개인 기준선(D1–D14 평균), 실선 가로줄 = 데모 임계값.</li>
+  </ul>
+</div>
+
+<script>
+// 결정적 합성 데이터 (시드 고정)
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
+const days = 30;
+const ramp = (d, start, delta) => d < start ? 0 : delta * (d - start) / (days - 1 - start);
+const series = {
+  hr:    Array.from({length:days}, (_, d) => 64 + rnd()*3 + ramp(d, 22, 10)),
+  sleep: Array.from({length:days}, (_, d) => 7.2 + rnd()*0.6 + ramp(d, 20, -2.1)),
+  temp:  Array.from({length:days}, (_, d) => 36.6 + rnd()*0.2 + ramp(d, 24, 0.2)),
+  co2:   Array.from({length:days}, (_, d) => 2.6 + rnd()*0.4 + ramp(d, 18, 0.5)),
+};
+series.hr[days-1]=74; series.sleep[days-1]=5.1; series.temp[days-1]=36.8; series.co2[days-1]=3.1;
+
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; }
+function W(svg){ return svg.clientWidth || 600; }
+
+function trend(id, data, color, lo, hi, base, limits){
+  const svg = document.getElementById(id), w = W(svg), h = 96;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const y = v => h - 4 - (v - lo) / (hi - lo) * (h - 8);
+  const x = i => i / (data.length - 1) * (w - 4) + 2;
+  limits.forEach(v => svg.append(el('line',{x1:0,x2:w,y1:y(v),y2:y(v),stroke:'#3a2a1a','stroke-width':1})));
+  svg.append(el('line',{x1:0,x2:w,y1:y(base),y2:y(base),stroke:color,'stroke-opacity':.45,'stroke-dasharray':'4 4'}));
+  svg.append(el('line',{x1:x(13.5),x2:x(13.5),y1:0,y2:h,stroke:'#16202a'}));
+  const p = el('polyline',{points:data.map((v,i)=>`${x(i)},${y(v)}`).join(' '),fill:'none',stroke:color,'stroke-width':2,'stroke-linejoin':'round'});
+  svg.append(p);
+  const L = p.getTotalLength(); p.style.strokeDasharray = L; p.style.strokeDashoffset = L;
+  p.animate([{strokeDashoffset:L},{strokeDashoffset:0}],{duration:1200,fill:'forwards',easing:'linear'});
+}
+
+// 방사선: 모니터처럼 왼→오 스윕, 지나간 자리를 덮어씀
+function radSweep(){
+  const svg = document.getElementById('w-rad'), w = W(svg), h = 96, N = 120;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const flux = t => { const bg = 0.3 + Math.abs(rnd())*0.15; if (t < 60) return bg; const k=(t-60)/12; return bg + 14*(1-Math.exp(-k))*Math.exp(-(t-60)/400); };
+  const y = v => h - 4 - (Math.log10(v) + 1) / 4 * (h - 8);   // 0.1 – 1000 pfu
+  const x = i => i / (N - 1) * w;
+  svg.append(el('line',{x1:0,x2:w,y1:y(10),y2:y(10),stroke:'#3a2a1a'}));
+  const t10 = el('text',{x:4,y:y(10)-3,fill:'#8b98a5','font-size':10,'font-family':'monospace'}); t10.textContent='10'; svg.append(t10);
+  const line = el('polyline',{fill:'none',stroke:'var(--rad)','stroke-width':2}); svg.append(line);
+  const gap = el('rect',{y:0,height:h,width:14,fill:'var(--panel)'}); svg.append(gap);
+  const vals = new Array(N).fill(null); let t = 0, i = 0;
+  const vEl = document.getElementById('v-rad'), sEl = document.getElementById('s-rad');
+  setInterval(() => {
+    const v = flux(t % 240); vals[i] = v;
+    line.setAttribute('points', vals.map((v,k)=> v==null?'':`${x(k)},${y(v)}`).join(' '));
+    gap.setAttribute('x', x(i) + 2);
+    vEl.textContent = v < 1 ? v.toFixed(1) : Math.round(v);
+    const act = v >= 10;
+    sEl.className = 'st ' + (act ? 's2' : 's0');
+    sEl.innerHTML = act ? '<span class="pri">**</span>▲ 조치 · ≥10 pfu (합성)' : '○ 정상';
+    i = (i + 1) % N; t++;
+  }, 80);
+}
+
+// 카메라: 품질 미달 원신호(잡음) → 숫자 대신 "--"
+function camSweep(){
+  const svg = document.getElementById('w-cam'), w = W(svg), h = 96, N = 200;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const line = el('polyline',{fill:'none',stroke:'var(--cam)','stroke-width':1.5}); svg.append(line);
+  const gap = el('rect',{y:0,height:h,width:12,fill:'var(--panel)'}); svg.append(gap);
+  const vals = new Array(N).fill(null); let i = 0, drift = 0;
+  setInterval(() => {
+    drift += rnd()*6; drift *= 0.95;
+    vals[i] = h/2 + drift + rnd()*18;
+    line.setAttribute('points', vals.map((v,k)=> v==null?'':`${k/(N-1)*w},${v}`).join(' '));
+    gap.setAttribute('x', i/(N-1)*w + 2);
+    i = (i + 1) % N;
+  }, 40);
+}
+
+trend('w-hr',    series.hr,    'var(--hr)',    55, 90, 64,  [74, 84]);
+trend('w-sleep', series.sleep, 'var(--sleep)', 4, 9,   7.2, [6.2, 5.2]);
+trend('w-temp',  series.temp,  'var(--temp)',  36, 38.5, 36.6, [37.4, 38.0]);
+trend('w-co2',   series.co2,   'var(--co2)',   1.5, 7.5, 2.6, [4.6, 6.6]);
+radSweep(); camSweep();
+</script>
+</body>
+</html>

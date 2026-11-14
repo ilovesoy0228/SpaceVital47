@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'">
+<title>우주민 Ujumin — Astronaut Health Monitor (prototype)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="alarm" class="alarm s0" role="status" aria-live="polite"></div>
+<div class="wrap">
+  <header class="hdr">
+    <h1>우주민 · Ujumin</h1>
+    <span class="meta" id="meta"></span>
+    <div class="tags" id="tags"></div>
+    <button id="langBtn" aria-label="Language / 언어">EN / 한국어</button>
+  </header>
+  <nav class="tabs" id="tabs" aria-label="views">
+    <button data-view="care"></button>
+    <button data-view="respond"></button>
+    <button data-view="camera"></button>
+    <button data-view="evidence"></button>
+  </nav>
+
+  <section id="view-care" class="care">
+    <div>
+      <div class="monitor" id="monitor"></div>
+      <div class="symsum" id="symsum"></div>
+      <div id="symdetail"></div>
+      <p class="monnote" id="monnote"></p>
+    </div>
+    <aside id="checkin"></aside>
+  </section>
+  <section id="view-respond" class="hide"></section>
+  <section id="view-camera" class="hide"></section>
+  <section id="view-evidence" class="hide"></section>
+
+  <footer id="footer"></footer>
+</div>
+<script src="data.js"></script>
+<script src="engine.js"></script>
+<script src="store.js"></script>
+<script src="report.js"></script>
+<script src="camera-core.js"></script>
+<script src="camera.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
