@@ -64,13 +64,13 @@ function page(kind) {
       </ol>
     </section>`).join("");
 
-  const title = isNasa ? "NASA Sources" : "Other Sources";
+  const title = isNasa ? "Space Agency Publications" : "Research & Other References";
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SpaceVital47 — ${title}</title>
+<title>SpaceVital47 Reference List — ${title}</title>
 <style>
 :root { --bg: #05070a; --panel: #0b0f14; --panel2: #111821; --line: #1f2a36; --text: #e6edf3; --muted: #93a1af; --dim: #5d6b79; --accent: #6ea8ff; --ok: #3ddc84; color-scheme: dark; }
 * { box-sizing: border-box; }
@@ -98,6 +98,8 @@ li { position: relative; background: var(--panel); border: 1px solid var(--line)
 .u.none { color: var(--dim); }
 .use { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
 li .copy { position: absolute; top: 10px; right: 10px; padding: 4px 10px; font-size: 12px; }
+.proj { display: block; font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: .02em; margin-bottom: 2px; }
+.disc { margin: 14px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); font-size: 13px; }
 footer { margin-top: 32px; color: var(--dim); font-size: 12px; }
 footer a { color: var(--muted); }
 @media (max-width: 480px) { li { padding-right: 14px; padding-top: 40px; } nav { margin-left: 0; } }
@@ -106,15 +108,16 @@ footer a { color: var(--muted); }
 <body>
 <div class="wrap">
   <header>
-    <h1>${title}<small>${all.length}</small></h1>
+    <h1><span class="proj">SpaceVital47 Reference List</span>${title}<small>${all.length}</small></h1>
     <nav aria-label="Source type">
-      <a href="../nasa/index.html"${isNasa ? ' aria-current="page"' : ""}>NASA</a>
-      <a href="../other/index.html"${isNasa ? "" : ' aria-current="page"'}>Other</a>
+      <a href="../nasa/index.html"${isNasa ? ' aria-current="page"' : ""}>Space Agency</a>
+      <a href="../other/index.html"${isNasa ? "" : ' aria-current="page"'}>Research &amp; Other</a>
     </nav>
   </header>
+  <p class="disc">Independent student project for the NASA Space Apps Challenge. Not affiliated with or endorsed by NASA. Every link below goes to the original publisher.</p>
   <div class="bar">
     <button id="copyAll" type="button">Copy all</button>
-    <span>${isNasa ? "Published by NASA" : "Non-NASA agencies, journals and press releases"} — copied as "No. Title. URL".</span>
+    <span>${isNasa ? "Public reports and web pages from the U.S. space agency" : "Other agencies, journals and press releases"} — copied as "No. Title. URL".</span>
   </div>
   ${body}
   <footer><a href="../../index.html">← Back to SpaceVital47</a></footer>
