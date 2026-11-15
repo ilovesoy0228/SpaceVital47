@@ -1,4 +1,4 @@
-/* 우주민 store.js — 브라우저 저장소. 쓰기가 한 번 실패하면 이후 모든 읽기·쓰기를 메모리로 일관 전환(이 세션에서만 유지).
+/* SpaceVital47 store.js — 브라우저 저장소. 쓰기가 한 번 실패하면 이후 모든 읽기·쓰기를 메모리로 일관 전환(이 세션에서만 유지).
  * 네트워크 없음. 사진 용량 80%에서 경고만(자동 삭제 금지). */
 (function (g) {
   "use strict";
@@ -46,7 +46,7 @@
 
   /* mode 'demo' = D30, 합성 D1–D29 + 카메라 합성 기록 / 'fresh' = D1, 이력 0 */
   function fresh(mode) {
-    const base = { v: 2, lang: "ko", mode: mode || "demo", crew: "A", shelter: false, radT: 0, respond: null, done: {}, comms: "yes", attach: {} };
+    const base = { v: 2, lang: "en", mode: mode || "demo", crew: "A", shelter: false, radT: 0, respond: null, done: {}, comms: "yes", attach: {} };
     if (base.mode === "fresh") return Object.assign(base, { missionDay: 1, curDay: 1, days: { 1: { checkin: emptyCheckin(), symptoms: {}, committed: false } }, camera: UJ.camdata.empty() });
     const days = synthDays(29);
     days[30] = { checkin: defaultCheckin(), symptoms: {}, committed: false, synthetic: true };

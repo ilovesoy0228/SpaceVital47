@@ -1,4 +1,4 @@
-/* 우주민 timeline.js — 임무일(D) 키 날짜 모델. DOM 없는 순수 함수.
+/* SpaceVital47 timeline.js — 임무일(D) 키 날짜 모델. DOM 없는 순수 함수.
  * days = { [D]: { checkin:{ch: number|null}, symptoms:{}, committed:bool, synthetic?:bool } }
  * 규칙(케이스표 §0): 어제 = D−1 기록만 / 기준선 = 기록이 있는 처음 14일 평균(오늘 제외) / 미래 데이터 사용 금지.
  * 모든 수치 기준(14일)은 [설계 선택]. */

@@ -1,10 +1,10 @@
-# Ujumin — Astronaut Health Monitor (prototype)
+# SpaceVital47 — Astronaut Health Monitor (prototype)
 
 NASA Space Apps 2026 · "Create Health Monitoring Software for Astronauts on Space Missions".
 **Simulated data · demo thresholds · not a diagnostic tool · not affiliated with NASA.**
 
 Astronauts are not doctors, and the farther from Earth, the harder real-time medical support becomes (NASA HRP "5 Hazards", distance).
-Ujumin is a serverless web app that turns a 1–3 minute daily self-check into a **vital-monitor view of change**, and switches to step-by-step **emergency cards** when needed.
+SpaceVital47 is a serverless web app that turns a 1–3 minute daily self-check into a **vital-monitor view of change**, and switches to step-by-step **emergency cards** when needed.
 
 ## What it does
 - **Three-layer check:** numbers (sleep, stress, resting HR, temperature, exercise, food intake, cabin ppCO₂) → structured symptom modules (12 modules, red flags) → optional camera.

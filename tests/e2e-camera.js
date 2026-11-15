@@ -22,7 +22,7 @@ async function session(video, fn) {
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto(URL_);
-  await page.click("#goCam"); // 같은 화면 안의 카메라 영역으로 이동
+  await page.evaluate(() => document.querySelector("#camSection").scrollIntoView()); // 같은 화면 오른쪽 카메라 패널
   if (await page.$("#consentYes")) await page.click("#consentYes");
   await fn(page);
   await ctx.close();

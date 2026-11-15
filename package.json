@@ -1,9 +1,10 @@
 {
-  "name": "ujumin",
+  "name": "spacevital47",
   "private": true,
-  "description": "Ujumin astronaut health monitor prototype (NASA Space Apps 2026). Static files, no build step.",
+  "description": "SpaceVital47 astronaut health monitor prototype (NASA Space Apps 2026). Static files, no build step.",
   "scripts": {
     "test": "node --test tests/",
+    "sources": "node tools/build-sources.js",
     "test:e2e": "node tests/e2e.js",
     "test:ui-cases": "node tests/make-videos.js && node tests/e2e-cases.js",
     "test:camera": "node tests/make-videos.js && node tests/e2e-camera.js",

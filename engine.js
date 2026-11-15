@@ -1,4 +1,4 @@
-/* 우주민 engine.js — DOM 없는 순수 함수. 입력(오늘·이력·증상·카메라·이벤트) → 타일·단계·카드·메시지 */
+/* SpaceVital47 engine.js — DOM 없는 순수 함수. 입력(오늘·이력·증상·카메라·이벤트) → 타일·단계·카드·메시지 */
 (function (g) {
   "use strict";
   const UJ = (g.UJ = g.UJ || {});

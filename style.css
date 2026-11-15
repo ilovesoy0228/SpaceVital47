@@ -1,4 +1,4 @@
-/* 우주민 style.css — 바이탈 모니터 시각 언어 (§8.2). 채널 색 = 지표 식별, 단계 = * / ** / *** 표식 + 아이콘 + 글자 */
+/* SpaceVital47 style.css — 바이탈 모니터 시각 언어 (§8.2). 채널 색 = 지표 식별, 단계 = * / ** / *** 표식 + 아이콘 + 글자 */
 :root {
   --bg: #05070a; --panel: #0b0f14; --panel2: #111821; --line: #1f2a36; --text: #e6edf3; --muted: #93a1af; --dim: #5d6b79;
   --c-hr: #3ddc84; --c-temp: #ff9f43; --c-rad: #f5d547; --c-sleep: #4dd0e1; --c-co2: #e6edf3; --c-intake: #ff7eb6;
@@ -136,10 +136,21 @@ textarea.report { width: 100%; min-height: 320px; font: 12px/1.45 var(--mono); }
 
 /* ── 카메라 ── */
 .camsec { scroll-margin-top: 64px; }
-#checkin { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 14px; align-items: start; }
+#checkin { margin-top: 14px; }
+#symbox { margin-bottom: 12px; }
+.symbox .symsum { border-top: 1px solid var(--line); margin-top: 8px; grid-template-columns: repeat(auto-fill, minmax(122px, 1fr)); }
+.symsum button .mname { font-size: 12px; color: var(--muted); display: block; }
+.symsum button .stage { font-size: 11px; min-height: 1em; }
+.symsum button.open { outline: 2px solid var(--text); outline-offset: -2px; }
+.symsum button .n:empty::before { content: "–"; color: var(--dim); font-weight: 400; }
+.symdetail .symhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.symdetail .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0 14px; }
+details.tools > summary { cursor: pointer; }
+details.tools h3 { margin: 10px 0 4px; font-size: 12.5px; color: var(--muted); }
 .cam-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .stagebox { position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 72vh; margin: 0 auto; background: #000; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .stagebox video, .stagebox canvas, .stagebox img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.stagebox video { transform: scaleX(-1); } /* 거울 모드 — 캡처 프레임도 camera.js drawCover에서 동일 반전 */
 .stagebox .ov { touch-action: none; cursor: crosshair; }
 .stagebox .ghost { opacity: .35; pointer-events: none; }
 .stagebox .camoff { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); text-align: center; padding: 12px; pointer-events: none; }

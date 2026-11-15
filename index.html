@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'">
-<title>우주민 Ujumin — Astronaut Health Monitor (prototype)</title>
+<title>SpaceVital47 — Astronaut Health Monitor</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
 <div id="storeBanner" class="storebanner hide" role="alert"></div>
 <div class="wrap">
   <header class="hdr">
-    <h1>우주민 · Ujumin</h1>
+    <h1>SpaceVital47</h1>
     <span class="meta" id="meta"></span>
     <div class="tags" id="tags"></div>
     <div class="daynav" id="daynav"></div>
@@ -21,25 +21,22 @@
   <nav class="tabs" id="tabs" aria-label="views">
     <button data-view="care"></button>
     <button data-view="respond"></button>
-    <button data-view="evidence"></button>
   </nav>
 
   <section id="view-care">
    <div class="care">
     <div>
       <div id="checkinTop"></div>
+      <div id="symbox"></div>
       <div class="monitor" id="monitor"></div>
-      <div id="camgroup"></div>
-      <div class="symsum" id="symsum"></div>
-      <div id="symdetail"></div>
       <p class="monnote" id="monnote"></p>
+      <div id="camgroup"></div>
       <div id="checkin"></div>
     </div>
     <aside id="camSection" class="camsec"></aside>
    </div>
   </section>
   <section id="view-respond" class="hide"></section>
-  <section id="view-evidence" class="hide"></section>
 
   <footer id="footer"></footer>
 </div>

@@ -19,6 +19,9 @@ const ok = (c, m) => { console.log((c ? "✔ " : "✖ ") + m); if (!c) fails++; 
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("request", (r) => { if (!r.url().startsWith("file:") && !r.url().startsWith("data:") && !r.url().startsWith("blob:")) net.push(r.url()); });
   await page.goto(URL_);
+  // 기본 언어는 영어 — 이 테스트의 문구 검사는 한국어 화면 기준
+  ok((await page.evaluate(() => UJ.app.state.lang + "/" + document.documentElement.lang)) === "en/en", "첫 화면 기본 언어 = 영어");
+  await page.evaluate(() => { if (UJ.app.state.lang !== "ko") document.querySelector("#langBtn").click(); });
   await page.waitForSelector("#row-hr .val");
 
   ok((await page.locator("#alarm").getAttribute("class")).includes("s0"), "정상일: 알람 s0");
@@ -57,9 +60,7 @@ const ok = (c, m) => { console.log((c ? "✔ " : "✖ ") + m); if (!c) fails++; 
   // 언어 전환
   await page.click("#langBtn");
   ok((await page.locator('[data-view="care"]').textContent()).includes("Monitor"), "영문 전환");
-  await page.click('[data-view="evidence"]');
-  ok((await page.locator("#condTable tr").count()) === 64, "근거 탭: 질환 63행");
-  await page.screenshot({ path: path.join(OUT, "evidence-en.png"), fullPage: false });
+  ok(!(await page.$('[data-view="evidence"]')) && (await page.locator('#footer a[href="sources-nasa.html"], #footer a[href="sources-other.html"]').count()) === 2, "근거 탭 없음, 하단에 출처 링크 2개");
   await page.click("#langBtn");
 
   // 모바일 390px
@@ -71,7 +72,7 @@ const ok = (c, m) => { console.log((c ? "✔ " : "✖ ") + m); if (!c) fails++; 
   ok(sw <= 390, `390px 가로 스크롤 없음 (scrollWidth ${sw})`);
   await page.screenshot({ path: path.join(OUT, "mobile-390.png"), fullPage: false });
   ok(!(await page.$('[data-view="camera"]')) && (await page.locator("#view-care #camSection #consentYes, #view-care #camSection #camVideo").count()) > 0, "카메라가 모니터·점검 화면 안에 있음 (별도 탭 없음)");
-  for (const v of ["respond", "evidence"]) {
+  for (const v of ["respond"]) {
     await page.click(`[data-view="${v}"]`); await page.waitForTimeout(150);
     const w = await page.evaluate(() => document.documentElement.scrollWidth);
     ok(w <= 390, `390px ${v} 가로 스크롤 없음 (${w})`);

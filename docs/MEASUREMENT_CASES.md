@@ -1,4 +1,4 @@
-# 우주민 — 날짜별 측정 케이스 100선 (MEASUREMENT_CASES.md)
+# SpaceVital47 — 날짜별 측정 케이스 100선 (MEASUREMENT_CASES.md)
 
 > 이 파일을 프로젝트의 `docs/MEASUREMENT_CASES.md`로 두고, 같은 ID(C001~C100)로 `tests/cases.test.js`를 만든다.
 > 모든 수치 임계값은 [설계 선택]·D0(근거 없음)이다. 근거가 있는 것처럼 화면·문서에 쓰지 않는다.

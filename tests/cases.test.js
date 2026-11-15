@@ -314,9 +314,8 @@ c("C069", "기준 사진 삭제 → 남은 가장 오래된 사진이 새 기준
   const res = CD.removeRecord(cam, "p1"); assert.equal(res.refChanged, true); assert.equal(res.newRef.id, "p2"); near(CD.deltas(cam, 5, "site:arm-1").dBase, 1, 0.3);
   assert.ok(fs.readFileSync(path.join(__dirname, "..", "camera.js"), "utf8").includes("새 기준"));
 });
-c("C070", "피부 밝기 L=40/L=75 → 둘 다 Δa* ≈ +3 ±0.3, 피부색 검증 안 됨 표기", () => {
+c("C070", "피부 밝기 L=40/L=75 → 둘 다 Δa* ≈ +3 ±0.3", () => {
   for (const L of [40, 75]) { const a = F.measure(F.skinFrame({ Lbase: L })), b = F.measure(F.skinFrame({ Lbase: L, dA: face(3) })); assert.ok(a.rois.forehead.valid); near(b.rois.forehead.a - a.rois.forehead.a, 3, 0.3); }
-  assert.ok(fs.readFileSync(path.join(__dirname, "..", "ui.js"), "utf8").includes("피부색별 검증 안 됨"));
 });
 
 /* ═════ G. rPPG ═════ */
@@ -407,12 +406,12 @@ c("C093", "JSON 내보내기: 스키마·날짜·ROI별 a*,L*,b*·Δ·사유·sy
   const d = ex.daily.find((x) => x.key === "face" && x.day === 30); assert.ok("dYest" in d && "dBase" in d && "reasons" in d);
   assert.ok(ex.daily.some((x) => x.status === "failed" && x.reasons.length)); assert.ok(!/dataUrl|data:image/.test(JSON.stringify(ex)));
 });
-c("C094", "보고서: '-0' 없음, 카메라 수치·D0, 미사용이면 'camera: not used'", () => {
+c("C094", "보고서: '-0' 없음, 카메라 수치, 미사용이면 'camera: not used'", () => {
   assert.equal(R.sgn(-0.04, 1), "0.0"); assert.equal(R.sgn(-0.0001, 0), "0");
   const st = storeMod.fresh("demo"); const ev = E.evaluate({ days: st.days, day: 30, symptoms: { confusion: {} }, camera: CD.engineInput(st.camera, 30), flux: 0.2, events: {} }, rules);
   const card = UJ.CARDS.find((x) => x.id === "R2");
   const txt = R.reportText({ card, manual: false, comms: "yes", elapsedSec: 5, crew: "A", missionDay: 30, ev, today: {}, symptoms: {}, done: {}, photos: [], camera: CD.summary(st.camera, 30) });
-  assert.ok(!/(^|[^0-9])-0(\.0+)?([^0-9.]|$)/m.test(txt), "no -0"); assert.ok(/Camera \(auxiliary signal, detection evidence D0/.test(txt)); assert.ok(/camera HR/.test(txt));
+  assert.ok(!/(^|[^0-9])-0(\.0+)?([^0-9.]|$)/m.test(txt), "no -0"); assert.ok(/Camera \(auxiliary signal, threshold \+3/.test(txt)); assert.ok(/camera HR/.test(txt));
   const t2 = R.reportText({ card, manual: false, comms: "no", elapsedSec: 0, crew: "A", missionDay: 1, ev, today: {}, symptoms: {}, done: {}, photos: [], camera: { used: false } });
   assert.ok(t2.includes("Camera: not used"));
 });

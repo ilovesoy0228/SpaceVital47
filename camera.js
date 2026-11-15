@@ -1,4 +1,4 @@
-/* 우주민 camera.js — 카메라 패널 UI (§7). 분석은 camera-core.js, 기록 모델은 camdata.js.
+/* SpaceVital47 camera.js — 카메라 패널 UI (§7). 분석은 camera-core.js, 기록 모델은 camdata.js.
  * 원칙: 동의 후 사용 / 스트림은 촬영 직후 stop() / 원본 영상 미저장 / 네트워크 요청 0건 / 판정 없음 / 얼굴 인식 모델 없음. */
 (function (g) {
   "use strict";
@@ -63,7 +63,11 @@
   function drawCover(x, src, w, h) {
     const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
     const s = Math.max(w / sw, h / sh), dw = sw * s, dh = sh * s;
+    // 라이브 영상은 거울처럼 좌우반전(화면 표시와 동일) — 사진 파일은 그대로
+    const mirror = typeof HTMLVideoElement !== "undefined" && src instanceof HTMLVideoElement;
+    if (mirror) { x.save(); x.translate(w, 0); x.scale(-1, 1); }
     x.drawImage(src, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    if (mirror) x.restore();
   }
   function frameFromSource(src) {
     const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
@@ -213,7 +217,7 @@
     CD.addRecord(cam(), { id: newId("hr"), day: day(), ts: Date.now(), kind: "hr", source: "camera", synthetic: false, rois: {}, conf: "ok",
       gate: { ok: r.status === "ok", reasons: r.reasons }, hr: r.status === "ok" ? Math.round(r.bpm) : null, resp: r.resp ? Math.round(r.resp) : null, snr: isFinite(r.snr) ? r2(r.snr) : null, frames: s.t.length, fps: r2(r.fps) });
     commit();
-    setMsg(r.status === "ok" ? T(`카메라 심박 ${Math.round(r.bpm)} bpm — 보조 참고값, 정확도 미검증.`, `Camera HR ${Math.round(r.bpm)} bpm — auxiliary reference, accuracy unverified.`)
+    setMsg(r.status === "ok" ? T(`카메라 심박 ${Math.round(r.bpm)} bpm — 보조 참고값.`, `Camera HR ${Math.round(r.bpm)} bpm — auxiliary reference.`)
       : T("측정 불가 — 품질 게이트 미통과", "Unavailable — quality gate failed") + ` (${r.reasons.map(rt).join(", ")})`, r.status !== "ok");
   }
 
@@ -266,7 +270,7 @@
     const data = CD.exportData(cam(), day());
     data.exported = new Date().toISOString();
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-    a.download = `ujumin-camera-D${day()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    a.download = `spacevital47-camera-D${day()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   function setMsg(m, bad) { msg = { m, bad: !!bad }; const el = root && $("#camMsg"); if (el) { el.textContent = m; el.className = bad ? "bad" : "ok"; } }

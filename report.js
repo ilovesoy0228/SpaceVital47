@@ -1,4 +1,4 @@
-/* 우주민 report.js — 영문 지상 보고서 (항상 영문). 순수 함수. */
+/* SpaceVital47 report.js — 영문 지상 보고서 (항상 영문). 순수 함수. */
 (function (g) {
   "use strict";
   const UJ = (g.UJ = g.UJ || {});
@@ -8,9 +8,9 @@
   const sgn = (v, dec) => { if (v === null || v === undefined || Number.isNaN(+v)) return "n/a"; const s = (+v).toFixed(dec); if (+s === 0) return (0).toFixed(dec); return (+s > 0 ? "+" : "") + s; };
   function cameraLines(cs) {
     if (!cs || !cs.used) return ["Camera: not used"];
-    const out = ["Camera (auxiliary signal, detection evidence D0, demo threshold +3; no diagnosis):"];
+    const out = ["Camera (auxiliary signal, threshold +3):"];
     for (const r of cs.rows) out.push(`  ${r.key} a* ${r.today === null ? "n/a" : f(r.today, 1)} (d-base ${sgn(r.dBase, 1)}, d-yesterday ${sgn(r.dYest, 1)}; ${r.todayStatus === "ok" ? "gate passed" : r.todayStatus === "lowconf" ? "low confidence, excluded from rules" : "gate failed: " + (r.reasons || []).join(",")}${r.synthetic ? "; SYNTHETIC" : ""})`);
-    if (cs.hr) out.push(`  camera HR ${cs.hr.status === "ok" ? f(cs.hr.bpm, 0) + " bpm" : "unavailable (" + cs.hr.reasons.join(",") + ")"}, SNR ${cs.hr.snr === null ? "n/a" : f(cs.hr.snr, 1)} (reference only, accuracy unverified)`);
+    if (cs.hr) out.push(`  camera HR ${cs.hr.status === "ok" ? f(cs.hr.bpm, 0) + " bpm" : "unavailable (" + cs.hr.reasons.join(",") + ")"}, SNR ${cs.hr.snr === null ? "n/a" : f(cs.hr.snr, 1)} (reference only)`);
     return out;
   }
 
@@ -52,7 +52,6 @@
       "Steps:",
       ...steps.map((s, i) => `  [${ctx.done && ctx.done[i] ? "x" : " "}] ${s.en}`),
       `Attached photos (${photos.length}): ${photos.length ? photos.map((p) => `${p.id} ${p.region} ${p.date}${p.note ? ` "${p.note}"` : ""}`).join("; ") : "none"}`,
-      "Thresholds are demo values; procedure is generic first-aid level (evidence C).",
       ctx.comms === "yes" ? "Request: guidance on next steps; confirm whether further action is needed." : "Request: (queued) send when comms resume.",
     ].join("\n");
   }

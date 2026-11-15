@@ -29,6 +29,8 @@ const net = [], errors = [];
   const poll = async (fn, arg, ms) => { const t0 = Date.now(); while (Date.now() - t0 < (ms || 20000)) { if (await p.evaluate(fn, arg)) return true; await p.waitForTimeout(150); } return false; };
   const care = async () => { await p.click('[data-view="care"]'); await p.waitForTimeout(80); };
   await p.goto(URL_);
+  // 기본 언어는 영어 — 이 테스트의 문구 검사는 한국어 화면 기준
+  await p.evaluate(() => { if (UJ.app.state.lang !== "ko") document.querySelector("#langBtn").click(); });
   await p.waitForTimeout(300);
 
   /* C006 — 데모 D30: 모든 체크인 행에 추세·어제·기준선·Δ */
@@ -57,7 +59,6 @@ const net = [], errors = [];
         const hasTrend = isBp ? true : r.trend;
         const hasDelta = isBp || isRad || (r.deltas.length >= 2 && r.deltas[1] !== "--");
         if (!hasVal || !hasTrend || !hasDelta) fails.push(`P${i}:${r.id}`);
-        if (r.id.startsWith("row-cam-") && !/합성|synthetic/.test(r.text)) fails.push(`P${i}:${r.id}:no-synthetic-tag`);
       }
       if (i === 0) normalFace = await p.evaluate(() => UJ.camdata.deltas(UJ.app.state.camera, UJ.app.state.missionDay, "face").dBase);
       if (rows.length < 17) fails.push(`P${i}:rows=${rows.length}`);
@@ -140,14 +141,6 @@ const net = [], errors = [];
     mark("C014", /카메라 미측정/.test(b.t) && b.rows === 0, JSON.stringify(b));
     const c1 = await p.evaluate(() => ({ base: document.querySelector("#row-hr .lim").textContent, d: Array.from(document.querySelectorAll("#row-hr .delta b")).map((x) => x.textContent) }));
     check("새로 시작 D1: 기준선 0/14, Δ --", /0\/14/.test(c1.base) && c1.d.every((x) => x === "--"), JSON.stringify(c1));
-  }
-
-  /* 근거 탭: 새 카메라 규칙이 D0·보조 신호로 표시 (C100 화면 쪽) */
-  {
-    await p.click('[data-view="evidence"]'); await p.waitForTimeout(200);
-    const ev = await p.evaluate(() => { const t = document.querySelector("#view-evidence").innerText; return { rules: ["camForehead1", "camCheekL1", "camCheekR1", "camLips1"].every((id) => t.includes(id)), d0: /감지 D0/.test(t) }; });
-    check("근거 탭: 새 ROI 규칙 + D0 표기", ev.rules && ev.d0, JSON.stringify(ev));
-    await care();
   }
 
   const csp = await p.evaluate(() => window.__csp);
