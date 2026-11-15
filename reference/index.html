@@ -24,7 +24,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
 button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
 button:hover{border-color:var(--accent)}
 button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.on{background:var(--accent);color:var(--onaccent);border-color:var(--accent)}
 button.alert{border-color:var(--l3);color:var(--l3)}
 .grid{display:grid;grid-template-columns:340px 1fr;gap:14px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -299,7 +299,10 @@ const state = {
 
 function readState() {
   const s = {};
-  for (const k in NUM) s[k] = parseFloat($("#f-" + k).value) || 0;
+  for (const k in NUM) {
+  const v = parseFloat($("#f-" + k).value);
+  s[k] = Number.isFinite(v) ? Math.min(NUM[k].max, Math.max(NUM[k].min, v)) : NUM[k].def;
+}
   for (const k in FLAGS) s[k] = $("#g-" + k).checked;
   s.shelter = $("#g-shelter") ? $("#g-shelter").checked : false;
   state.s = s;
@@ -486,9 +489,9 @@ function renderEvidence() {
     <p><b>A</b> ${T("임계값과 행동 모두 출처 확인 — 현재 0개 (아직 어떤 규칙도 여기에 해당하지 않습니다)", "threshold AND action sourced — currently 0 rules qualify")}<br>
     <b>B</b> ${T("위험 자체는 NASA 자료로 확인, 임계값은 데모용 값", "risk sourced from NASA material; threshold is a demo value")}<br>
     <b>C</b> ${T("데모 절차 (일반 응급처치 수준, 임무 절차서 아님)", "demo procedure (generic first-aid level, not a mission procedure)")}</p></div>
-  <div class="card scroll"><h2>${T("위험 레지스터 (10개)", "Risk register (10)")}</h2>
+  <div class="card scroll"><h2>${T("위험 레지스터 (" + RISKS.length + "개)", "Risk register (" + RISKS.length + ")")}</h2>
     <table><tr><th>${T("위험", "Risk")}</th><th>${T("규칙 (데모)", "Rule (demo)")}</th><th>${T("수준", "Level")}</th><th>${T("출처 위치", "Source")}</th><th>${T("링크", "Links")}</th></tr>${rows}</table></div>
-  <div class="card scroll"><h2>${T("긴급 시나리오 (3개)", "Emergency scenarios (3)")}</h2>
+  <div class="card scroll"><h2>${T("긴급 시나리오 (" + SC_ORDER.length + "개)", "Emergency scenarios (" + SC_ORDER.length + ")")}</h2>
     <table><tr><th>${T("시나리오", "Scenario")}</th><th>${T("비고", "Note")}</th><th>${T("수준", "Level")}</th></tr>${srows}</table></div>
   <div class="card"><h2>${T("미확인 · 한계", "Unverified · limitations")}</h2>
     <ul>
@@ -596,7 +599,15 @@ function init() {
     const t = e.target;
     if (t.dataset.manual) { state.manual[t.dataset.manual] = true; state.sel = t.dataset.manual; state.auto = false; return update(); }
     if (t.dataset.sel) { state.sel = t.dataset.sel; return render(); }
-    if (t.dataset.comms) { state.comms = t.dataset.comms; return render(); }
+    if (t.dataset.comms) {
+  state.comms = t.dataset.comms;
+  const k = state.sel;
+  if (k && state.done[k]) {
+    const n = SCEN[k].steps.length;
+    for (const i of Object.keys(state.done[k])) if (+i >= n) delete state.done[k][i];
+  }
+  return render();
+}
     if (t.id === "copyBtn") {
       const k = state.sel; $("#report").value = reportText(k);
       const txt = $("#report").value;
