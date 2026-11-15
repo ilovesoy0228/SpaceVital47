@@ -1,5 +1,6 @@
 /* SpaceVital47 — source collection page generator.
- * Splits the read SOURCES in data.js into NASA / other: sources-nasa.html, sources-other.html.
+ * Splits the read SOURCES in data.js into NASA / other: sources/nasa/index.html, sources/other/index.html
+ * (published at .../sources/nasa/ and .../sources/other/).
  * Run: npm run sources  (re-run after editing sources in data.js) */
 "use strict";
 const fs = require("fs");
@@ -107,8 +108,8 @@ footer a { color: var(--muted); }
   <header>
     <h1>${title}<small>${all.length}</small></h1>
     <nav aria-label="Source type">
-      <a href="sources-nasa.html"${isNasa ? ' aria-current="page"' : ""}>NASA</a>
-      <a href="sources-other.html"${isNasa ? "" : ' aria-current="page"'}>Other</a>
+      <a href="../nasa/index.html"${isNasa ? ' aria-current="page"' : ""}>NASA</a>
+      <a href="../other/index.html"${isNasa ? "" : ' aria-current="page"'}>Other</a>
     </nav>
   </header>
   <div class="bar">
@@ -116,7 +117,7 @@ footer a { color: var(--muted); }
     <span>${isNasa ? "Published by NASA" : "Non-NASA agencies, journals and press releases"} — copied as "No. Title. URL".</span>
   </div>
   ${body}
-  <footer><a href="index.html">← Back to SpaceVital47</a></footer>
+  <footer><a href="../../index.html">← Back to SpaceVital47</a></footer>
 </div>
 <textarea id="plain" hidden>${esc(plain)}</textarea>
 <script>
@@ -140,7 +141,8 @@ footer a { color: var(--muted); }
 }
 
 for (const kind of ["nasa", "other"]) {
-  const file = path.join(ROOT, `sources-${kind}.html`);
+  const file = path.join(ROOT, "sources", kind, "index.html");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, page(kind));
   console.log("wrote", path.relative(ROOT, file));
 }

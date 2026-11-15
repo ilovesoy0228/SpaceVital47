@@ -99,7 +99,7 @@
       "Per-mission-day trends of once-daily records. Dashed = personal baseline (first 14 days); solid horizontal = alert threshold.");
     $("#footer").innerHTML = esc(T("진단·치료 도구가 아닙니다. NASA와 제휴하지 않았습니다. 사진·수치는 이 기기 안에만 저장됩니다.",
       "Not a diagnostic or treatment tool. Not affiliated with NASA. Photos and numbers stay on this device.")) +
-      ` · ${T("출처", "Sources")}: <a href="sources-nasa.html">NASA</a> · <a href="sources-other.html">${T("기타", "Other")}</a>`;
+      ` · ${T("출처", "Sources")}: <a href="sources/nasa/index.html">NASA</a> · <a href="sources/other/index.html">${T("기타", "Other")}</a>`;
     buildMonitor(); buildCheckin();
   }
 

@@ -60,7 +60,7 @@ const ok = (c, m) => { console.log((c ? "✔ " : "✖ ") + m); if (!c) fails++; 
   // 언어 전환
   await page.click("#langBtn");
   ok((await page.locator('[data-view="care"]').textContent()).includes("Monitor"), "영문 전환");
-  ok(!(await page.$('[data-view="evidence"]')) && (await page.locator('#footer a[href="sources-nasa.html"], #footer a[href="sources-other.html"]').count()) === 2, "근거 탭 없음, 하단에 출처 링크 2개");
+  ok(!(await page.$('[data-view="evidence"]')) && (await page.locator('#footer a[href="sources/nasa/index.html"], #footer a[href="sources/other/index.html"]').count()) === 2, "근거 탭 없음, 하단에 출처 링크 2개");
   await page.click("#langBtn");
 
   // 모바일 390px
