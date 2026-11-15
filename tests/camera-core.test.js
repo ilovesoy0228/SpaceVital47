@@ -63,21 +63,20 @@ test("조명 변동 큼 → 측정 불가", () => {
   assert.ok(v.reasons.includes("lightingVaries"));
 });
 
-test("붉기만 올린 프레임 → Δa*>0 & 주의 임계 이상, 조명 게이트 통과", () => {
-  const W = 160, H = 120;
-  const base = C.measureFrame(frame(W, H, [200, 150, 130]), W, H);
-  const red = C.measureFrame(frame(W, H, [212, 140, 128]), W, H);
-  const g = C.lightGate(base, red);
+test("붉기만 올린 프레임 → 얼굴 ROI Δa*>3, 게이트 통과 (새 API)", () => {
+  const W = 240, H = 320, bg = [60, 90, 120];
+  const base = C.combineFrames([C.measureFrame(frame(W, H, [200, 150, 130], bg), W, H)]);
+  const red = C.combineFrames([C.measureFrame(frame(W, H, [212, 140, 128], bg), W, H)]);
+  const g = C.gate(base, red);
   assert.ok(g.ok, JSON.stringify(g));
-  const d = C.compare(base, red);
-  assert.ok(d.face > C.GATE.redWatch, String(d.face));
+  assert.ok(red.rois.forehead.a - base.rois.forehead.a > C.GATE.redWatch);
 });
 
-test("조명이 다른 프레임 → 재촬영 안내(게이트 실패)", () => {
-  const W = 160, H = 120;
-  const base = C.measureFrame(frame(W, H, [200, 150, 130]), W, H);
-  const dark = C.measureFrame(frame(W, H, [140, 100, 85]), W, H);
-  assert.equal(C.lightGate(base, dark).ok, false);
-  const blown = C.measureFrame(frame(W, H, [255, 255, 255]), W, H);
-  assert.ok(C.lightGate(base, blown).reasons.includes("saturated"));
+test("조명이 다른 프레임 → 게이트 실패 / 하얗게 날아간 얼굴 → ROI 무효", () => {
+  const W = 240, H = 320, bg = [60, 90, 120];
+  const base = C.combineFrames([C.measureFrame(frame(W, H, [200, 150, 130], bg), W, H)]);
+  const dark = C.combineFrames([C.measureFrame(frame(W, H, [140, 100, 85], bg), W, H)]);
+  assert.equal(C.gate(base, dark).ok, false);
+  const blown = C.combineFrames([C.measureFrame(frame(W, H, [255, 255, 255], bg), W, H)]);
+  assert.ok(C.gate(base, blown).reasons.includes("tooFewRois"));
 });

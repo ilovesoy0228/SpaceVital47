@@ -22,7 +22,7 @@ async function session(video, fn) {
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto(URL_);
-  await page.click('[data-view="camera"]');
+  await page.click("#goCam"); // 같은 화면 안의 카메라 영역으로 이동
   if (await page.$("#consentYes")) await page.click("#consentYes");
   await fn(page);
   await ctx.close();
@@ -30,41 +30,49 @@ async function session(video, fn) {
 const msg = (p) => p.locator("#camMsg").textContent();
 const waitMsg = (p, re, t) => p.waitForFunction((src) => new RegExp(src).test(document.querySelector("#camMsg")?.textContent || ""), re.source, { timeout: t || 15000 });
 
+const closeDay = (p) => p.click("#dClose").then(() => p.waitForTimeout(200));
+const last = (p, kind) => p.evaluate((k) => UJ.app.state.camera.records.filter((r) => r.kind === k).sort((a, b) => a.ts - b.ts).at(-1), kind);
+const waitIdle = (p, re, t) => p.waitForFunction((src) => { const b = document.querySelector("#capDaily"); return new RegExp(src).test(document.querySelector("#camMsg")?.textContent || "") && (!b || !b.disabled); }, re.source, { timeout: t || 30000 });
+
 (async () => {
   await session("base", async (p) => {
-    await p.click("#capBase"); await waitMsg(p, /기준 촬영 완료/);
-    ok(true, "합성 영상으로 기준 촬영 완료 (file:// + 가짜 카메라에서 getUserMedia 동작)");
-    await p.click("#capDaily"); await waitMsg(p, /붉기 변화/);
-    const d = await p.evaluate(() => UJ.app.state.camera.daily.at(-1));
-    ok(d.gate && Math.abs(d.dFace) < 1, `같은 영상 일상 촬영: 조명 통과, Δa* ≈ 0 (${d.dFace})`);
+    await p.click("#capBase"); await waitIdle(p, /기준 촬영 완료/);
+    ok(true, "합성 영상으로 기준 3회 촬영 완료 (file:// + 가짜 카메라, 워밍업 통과)");
     ok(await p.evaluate(() => !document.querySelector("#camVideo").srcObject), "촬영 직후 스트림 정지");
+    await closeDay(p);                                   // D31
+    await p.click("#capDaily"); await waitIdle(p, /촬영 저장됨|붉기|재촬영/);
+    const r = await last(p, "daily");
+    const d = await p.evaluate(() => UJ.camdata.deltas(UJ.app.state.camera, UJ.app.state.missionDay, "face"));
+    ok(r.gate.ok && Math.abs(d.dBase) < 1 && r.gate.ncc > 0.9, `같은 영상 D31: 게이트 통과, Δa* ≈ 0 (${d.dBase}), NCC ${r.gate.ncc}`);
+    ok(d.n === 2 && !d.rulesOn, "실제 촬영 기준 n=2 — 규칙은 3일부터 (합성 기록과 섞지 않음)");
+    await closeDay(p);                                   // D32
   });
   await session("red", async (p) => {
-    await p.click("#capDaily"); await waitMsg(p, /붉기 변화 있음/);
-    const d = await p.evaluate(() => UJ.app.state.camera.daily.at(-1));
-    ok(d.dFace > 3, `붉기만 올린 영상: Δa* > 0 이고 주의 임계 이상 (${d.dFace})`);
-    const tile = await p.evaluate(() => UJ.app.ev.tiles.camFace && UJ.app.ev.tiles.camFace.level);
-    ok(tile === 1, "카메라 타일 = 주의(1)");
-    ok(await p.evaluate(() => UJ.app.ev.overall < 3 && !UJ.app.ev.cards.length), "카메라 단독으로 긴급 없음");
+    await p.click("#capDaily"); await waitIdle(p, /붉기 변화 있음|촬영 저장됨|재촬영/);
+    const d = await p.evaluate(() => UJ.camdata.deltas(UJ.app.state.camera, UJ.app.state.missionDay, "face"));
+    ok(d.dBase > 3, `붉기만 올린 영상 D32: Δa* ${d.dBase} > +3 (n=${d.n})`);
+    ok(await p.evaluate(() => UJ.app.ev.tiles.camFace && UJ.app.ev.tiles.camFace.level === 1), "얼굴 종합 타일 = 주의(1)");
+    ok(await p.evaluate(() => UJ.app.ev.overall < 3 && !UJ.app.ev.cards.length), "카메라 단독으로 긴급·카드 없음");
     await p.screenshot({ path: path.join(OUT, "camera-red.png"), fullPage: false });
   });
   await session("dark", async (p) => {
-    await p.click("#capDaily"); await waitMsg(p, /조명이 다릅니다/);
-    ok(true, "조명이 다른 영상: 재촬영 안내 — " + (await msg(p)));
+    await p.click("#capDaily"); await waitIdle(p, /재촬영 필요/);
+    const r = await last(p, "daily");
+    ok(!r.gate.ok && r.gate.reasons.includes("tooDark"), "조명이 다른 영상: 재촬영 안내, '품질 미달' 기록 — " + (await msg(p)));
   });
   await session("pulse", async (p) => {
     await p.click("#capHr"); await waitMsg(p, /카메라 심박|측정 불가/, 60000);
-    const d = await p.evaluate(() => UJ.app.state.camera.daily.at(-1));
-    ok(d.hrStatus === "ok" && Math.abs(d.hr - 72) <= 3, `1.2 Hz 변조 영상: ${d.hr} bpm (72±3), SNR ${d.hrSnr}, frames ${d.frames}`);
+    const r = await last(p, "hr");
+    ok(r.gate.ok && Math.abs(r.hr - 72) <= 3, `1.2 Hz 변조 영상: ${r.hr} bpm (72±3), SNR ${r.snr}, frames ${r.frames}, 실측 fps ${r.fps}`);
   });
   await session("still", async (p) => {
     await p.click("#capHr"); await waitMsg(p, /카메라 심박|측정 불가/, 60000);
-    const d = await p.evaluate(() => UJ.app.state.camera.daily.at(-1));
-    ok(d.hrStatus === "unavailable", `변조 없는 영상: 측정 불가 (${(d.hrReasons || []).join(",")}, SNR ${d.hrSnr})`);
+    const r = await last(p, "hr");
+    ok(!r.gate.ok, `변조 없는 영상: 측정 불가 (${(r.gate.reasons || []).join(",")}, SNR ${r.snr})`);
     p.on("dialog", (dl) => dl.accept());
     await p.click("#camDelete"); await waitMsg(p, /삭제/);
-    const left = await p.evaluate(() => ({ photos: localStorage.getItem("ujumin.photos.v1"), cam: JSON.parse(localStorage.getItem("ujumin.v1")).camera }));
-    ok(!left.photos && !left.cam.baseline && !left.cam.daily.length, "전체 삭제 후 저장소에 사진·기준·수치 없음");
+    const left = await p.evaluate(() => ({ photos: localStorage.getItem("ujumin.photos.v2"), cam: JSON.parse(localStorage.getItem("ujumin.v2")).camera, days: Object.keys(JSON.parse(localStorage.getItem("ujumin.v2")).days).length }));
+    ok(!left.photos && !left.cam.ref && !left.cam.records.length && left.days > 30, "전체 삭제 후 사진·기준·카메라 수치 없음, 체크인 기록 유지");
   });
   ok(net.length === 0, "네트워크 요청 0건" + (net.length ? ": " + net.join(", ") : ""));
   ok(errors.length === 0, "콘솔 오류 0" + (errors.length ? ": " + errors.join(" | ") : ""));

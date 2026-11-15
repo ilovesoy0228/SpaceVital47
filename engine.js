@@ -33,13 +33,14 @@
   const num = (v) => (v === null || v === undefined || v === "" || Number.isNaN(+v) ? null : +v);
   const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
-  /* 기준선 = 이력의 처음 14일 평균. 유효값 14개 미만이면 null (수집 중 n/14) */
-  function baselines(history, channelIds) {
-    const out = {};
-    for (const ch of channelIds) {
-      const vals = history.slice(0, BASELINE_DAYS).map((d) => num(d[ch])).filter((v) => v !== null);
-      out[ch] = { value: vals.length >= BASELINE_DAYS ? mean(vals) : null, n: Math.min(vals.length, BASELINE_DAYS) };
-    }
+  const TL = () => UJ.timeline || (typeof require === "function" ? require("./timeline.js") : null);
+
+  /* 기준선 = 기록이 있는 처음 14일 평균(오늘 제외). 14개 미만이면 null (수집 중 n/14). history 배열도 받음(호환) */
+  function baselines(history, channelIds, D) {
+    const tl = TL(), out = {};
+    const days = Array.isArray(history) ? tl.fromHistory(history).days : history;
+    const day = D || (Array.isArray(history) ? history.length + 1 : Infinity);
+    for (const ch of channelIds) out[ch] = tl.baseline(days, day, ch);
     return out;
   }
 
@@ -78,20 +79,23 @@
    *           camera:{face,eye,skin (Δa*), hr, resp}, flux, events:{shelter} }
    */
   function evaluate(input, rules) {
-    const today = input.today || {};
-    const history = input.history || [];
-    const chIds = Array.from(new Set(Object.keys(today).concat(history.length ? Object.keys(history[0]) : []))).filter((k) => k !== "date");
-    const base = baselines(history, chIds);
-    const yest = history.length ? history[history.length - 1] : {};
+    const tl = TL();
+    let days = input.days, D = input.day;
+    if (!days) { const c = tl.fromHistory(input.history || [], input.today || {}); days = c.days; D = c.D; }
+    const chIds = Array.from(new Set([].concat(...tl.dayKeys(days).map((d) => Object.keys((days[d] && days[d].checkin) || {}))))).filter((k) => k !== "date" && k !== "day");
+    const today = tl.todayOf(days, D, chIds);
+    const base = {};
+    for (const ch of chIds) base[ch] = tl.baseline(days, D, ch);
     const syms = new Set(Object.keys(input.symptoms || {}).filter((k) => input.symptoms[k]));
     const cam = input.camera || {};
     const ctx = { today, base, syms, cam, flux: input.flux, events: input.events || {} };
 
     const deltas = {};
     for (const ch of chIds) {
-      const v = num(today[ch]), y = num(yest[ch]), b = base[ch] ? base[ch].value : null;
-      deltas[ch] = { today: v, yesterday: y, base: b, n: base[ch] ? base[ch].n : 0,
-        dYest: v !== null && y !== null ? v - y : null, dBase: v !== null && b !== null ? v - b : null };
+      const v = today[ch], yy = tl.yesterday(days, D, ch), y = yy.value, b = base[ch].value;
+      deltas[ch] = { today: v, yesterday: y, yesterdayMissing: yy.missing, last: yy.last, base: b, n: base[ch].n, baseEnd: base[ch].endDay,
+        dYest: v !== null && y !== null ? v - y : null, dBase: v !== null && b !== null ? v - b : null,
+        dLast: v !== null && yy.last ? v - yy.last.value : null };
     }
 
     const tiles = {};

@@ -1,29 +1,40 @@
-/* 우주민 camera.js — 카메라 탭 UI (§7). 분석은 camera-core.js.
- * 원칙: 동의 후 사용 / 영상 스트림은 촬영 직후 stop() / 원본 영상 미저장 / 네트워크 요청 0건 / 판정 없음. */
+/* 우주민 camera.js — 카메라 패널 UI (§7). 분석은 camera-core.js, 기록 모델은 camdata.js.
+ * 원칙: 동의 후 사용 / 스트림은 촬영 직후 stop() / 원본 영상 미저장 / 네트워크 요청 0건 / 판정 없음 / 얼굴 인식 모델 없음. */
 (function (g) {
   "use strict";
   const UJ = (g.UJ = g.UJ || {});
-  const C = UJ.camcore;
-  const W = 640, H = 480;
-  const REGIONS = ["face", "eye", "mouth", "arm", "leg", "wound", "other"];
-  let stream = null, api = null, root = null, busy = false, last = null, msg = "", hrProgress = null;
+  const C = UJ.camcore, CD = UJ.camdata;
+  const W = 480, H = 640; // 세로(3:4) 분석 프레임 — 가로 영상은 가운데를 잘라 씀(화면 object-fit: cover와 동일)
+  const REGIONS = ["arm", "leg", "mouth", "wound", "eye", "face", "other"];
+  let stream = null, api = null, root = null, busy = false, msg = null, hrProgress = null, locks = null;
+  let mode = "face", roiNorm = null, siteRect = null, drag = null, repeatRes = null, siteSel = "";
 
   const $ = (s) => root.querySelector(s);
   const T = (...a) => api.T(...a), esc = (s) => api.esc(s);
-  const RNAME = { face: ["얼굴", "Face"], eye: ["눈", "Eye"], mouth: ["입 안", "Mouth"], arm: ["손·팔 피부", "Hand/arm skin"], leg: ["다리", "Leg"], wound: ["상처·화상", "Wound/burn"], other: ["기타", "Other"] };
+  const RNAME = { face: ["얼굴", "Face"], eye: ["눈", "Eye"], mouth: ["입 안·입술", "Mouth/lips"], arm: ["손·팔", "Hand/arm"], leg: ["다리", "Leg"], wound: ["상처·화상", "Wound/burn"], other: ["기타", "Other"] };
   const rname = (r) => T(RNAME[r][0], RNAME[r][1]);
   const cam = () => api.S.camera;
   const day = () => api.S.missionDay;
   const newId = (p) => p + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  const rt = (r) => (api.reasonTxt ? api.reasonTxt(r) : r);
+  const sg = (v) => { const s = (+v).toFixed(1); return +s === 0 ? "0.0" : (+s > 0 ? "+" : "") + s; };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const curNorm = () => roiNorm || (cam().ref && cam().ref.roiNorm) || C.defaultNorm();
 
   /* ───── 스트림 ───── */
   async function start() {
     if (stream) return true;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setMsg(T("이 환경에서는 카메라를 쓸 수 없습니다 (HTTPS 필요할 수 있음). 사진 파일로 대체하십시오.", "Camera is not available here (HTTPS may be required). Use a photo file instead."), true); return false; }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { width: W, height: H, facingMode: "user" }, audio: false });
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }, audio: false });
+      // 자동 노출·화이트밸런스 고정 시도 — 지원 안 되면 그대로 진행
+      locks = "none";
+      try { const tr = stream.getVideoTracks()[0], cap = tr.getCapabilities ? tr.getCapabilities() : {}; const adv = {};
+        if (cap.exposureMode && cap.exposureMode.includes("manual")) adv.exposureMode = "manual";
+        if (cap.whiteBalanceMode && cap.whiteBalanceMode.includes("manual")) adv.whiteBalanceMode = "manual";
+        if (Object.keys(adv).length) { await tr.applyConstraints({ advanced: [adv] }); locks = Object.keys(adv).join("+"); } } catch (e) { locks = "failed"; }
       const v = $("#camVideo"); v.srcObject = stream; await v.play().catch(() => {});
-      drawOverlay(); setMsg(T("타원 안에 얼굴을 맞추십시오. 얼굴 인식 모델 없이 고정 비율 영역을 측정합니다.", "Fit your face inside the oval. Fixed-ratio regions are measured — no face-detection model."));
+      drawOverlay(); setMsg(T("타원 안에 얼굴을 맞추십시오. 얼굴 인식 모델 없이 지정한 영역을 측정합니다.", "Fit your face inside the oval. The regions you set are measured — no face-detection model."));
       return true;
     } catch (e) {
       setMsg(T("카메라 권한이 거부되었거나 장치가 없습니다. 사진 파일로 대체하십시오.", "Camera permission denied or no device. Use a photo file instead.") + ` (${e.name})`, true);
@@ -35,31 +46,58 @@
   function drawOverlay() {
     const cv = $("#camOv"); if (!cv) return;
     cv.width = W; cv.height = H;
-    const x = cv.getContext("2d"), e = C.guide(W, H), rects = C.roiRects(W, H);
+    const x = cv.getContext("2d"), e = C.guide(W, H);
     x.clearRect(0, 0, W, H);
     x.strokeStyle = "rgba(255,255,255,.85)"; x.lineWidth = 2; x.setLineDash([8, 6]);
     x.beginPath(); x.ellipse(e.cx, e.cy, e.rx, e.ry, 0, 0, Math.PI * 2); x.stroke();
-    x.setLineDash([]); x.strokeStyle = "rgba(214,140,255,.9)"; x.font = "12px monospace"; x.fillStyle = "rgba(214,140,255,.9)";
-    for (const k in rects) { const r = rects[k]; x.strokeRect(r.x, r.y, r.w, r.h); x.fillText(k, r.x + 2, r.y - 3); }
+    x.setLineDash([]); x.font = "13px monospace";
+    if (mode === "face") {
+      const rects = C.roiRects(W, H, curNorm());
+      for (const k in rects) { const r = rects[k]; x.strokeStyle = x.fillStyle = drag && drag.k === k ? "rgba(255,220,120,.95)" : "rgba(214,140,255,.95)"; x.strokeRect(r.x, r.y, r.w, r.h); x.fillText(k, r.x + 2, r.y - 4); }
+    } else if (siteRect) {
+      const r = C.roiRects(W, H, { s: siteRect }).s; x.strokeStyle = x.fillStyle = "rgba(120,220,255,.95)"; x.strokeRect(r.x, r.y, r.w, r.h); x.fillText(T("측정 영역", "region"), r.x + 2, r.y - 4);
+    }
   }
 
-  /* ───── 프레임 얻기 (카메라 또는 파일) ───── */
+  /* ───── 프레임 ───── */
+  function drawCover(x, src, w, h) {
+    const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
+    const s = Math.max(w / sw, h / sh), dw = sw * s, dh = sh * s;
+    x.drawImage(src, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  }
   function frameFromSource(src) {
     const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
     const x = cv.getContext("2d", { willReadFrequently: true });
-    const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
-    const s = Math.max(W / sw, H / sh), dw = sw * s, dh = sh * s; // cover
-    x.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    drawCover(x, src, W, H);
     return { data: x.getImageData(0, 0, W, H).data, canvas: cv };
   }
   function thumb(canvas) {
-    const t = document.createElement("canvas"); t.width = 320; t.height = 240;
-    t.getContext("2d").drawImage(canvas, 0, 0, 320, 240);
+    const t = document.createElement("canvas"); t.width = 240; t.height = 320;
+    t.getContext("2d").drawImage(canvas, 0, 0, 240, 320);
     return t.toDataURL("image/jpeg", 0.72);
   }
-  async function grab(n) {
+  function frameL(src) {
+    const cv = document.createElement("canvas"); cv.width = 60; cv.height = 80;
+    const x = cv.getContext("2d", { willReadFrequently: true }); drawCover(x, src, 60, 80);
+    const d = x.getImageData(15, 20, 30, 40).data; let r = 0, gg = 0, b = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++; }
+    return C.rgbToLab(r / n, gg / n, b / n).L;
+  }
+  /* 워밍업: 연속 3프레임 L* 변화 < 1.5%가 될 때까지 프레임을 버림(최대 4초) */
+  async function warmup() {
+    const v = $("#camVideo"), t0 = performance.now(), samples = [];
+    while (true) {
+      const t = (performance.now() - t0) / 1000;
+      samples.push({ t, L: frameL(v) });
+      const i = C.stableIndex(samples);
+      if (i >= 0) return true;
+      if (t > C.GATE.warmMax) return false;
+      await sleep(100);
+    }
+  }
+  async function grab(n, gap) {
     const v = $("#camVideo"), frames = [];
-    for (let i = 0; i < n; i++) { frames.push(frameFromSource(v)); await new Promise((r) => setTimeout(r, 120)); }
+    for (let i = 0; i < n; i++) { frames.push(frameFromSource(v)); await sleep(gap || 120); }
     return frames;
   }
   function loadFile(file) {
@@ -70,115 +108,163 @@
       img.src = url;
     });
   }
+  const measureAll = (frames, norm) => C.combineFrames(frames.map((f) => C.measureFrame(f.data, W, H, norm)));
+  const r2 = (v) => (v === null || v === undefined ? null : Math.round(v * 100) / 100);
+  const pack = (rois) => Object.fromEntries(Object.entries(rois).map(([k, r]) => [k, r.valid ? { a: r2(r.a), b: r2(r.b), L: r2(r.L), n: r.n || 0, valid: true, reason: null } : { valid: false, reason: r.reason || "invalid", n: r.n || 0 }]));
 
-  /* ───── 정기 점검 A ───── */
   function savePhoto(region, kind, canvas, note) {
     const p = { id: newId(region), region, kind, day: day(), dataUrl: thumb(canvas), note: note || "" };
-    const ok = api.store.photos.add(p);
-    if (!ok) setMsg(T("브라우저 저장소에 저장하지 못했습니다(용량·차단). 이 세션에서만 유지됩니다.", "Could not persist to browser storage (quota/blocked). Kept for this session only."), true);
+    if (!api.store.photos.add(p)) setMsg(T("브라우저 저장소에 저장하지 못했습니다(용량·차단). 이 세션에서만 유지됩니다.", "Could not persist to browser storage (quota/blocked). Kept for this session only."), true);
     return p;
   }
-  function doBaseline(frames) {
-    const ms = frames.map((f) => C.measureFrame(f.data, W, H));
-    const m = C.averageMeasures(ms), gate = C.lightGate(null, m);
-    if (!gate.ok) return setMsg(T("빛 반사·과노출이 있습니다(포화 픽셀 ≥2%). 다시 촬영하십시오.", "Glare/over-exposure (saturated pixels ≥2%). Please retake."), true);
-    const p = savePhoto("face", "baseline", frames[frames.length - 1].canvas);
-    cam().baseline = { measure: m, photoId: p.id, day: day() };
-    api.save(); api.changed();
-    setMsg(T(`기준 촬영 완료 (${m.frames}프레임 평균). 이후 촬영은 이 기준과 비교합니다.`, `Reference captured (${m.frames}-frame mean). Later captures compare against it.`));
-  }
-  function doDaily(frames) {
-    const b = cam().baseline;
-    if (!b) return doBaseline(frames);
-    const m = C.averageMeasures(frames.map((f) => C.measureFrame(f.data, W, H)));
-    const gate = C.lightGate(b.measure, m);
-    if (!gate.ok) {
-      last = { gate, m };
-      return setMsg(gate.reasons.includes("saturated") ? T("빛 반사·과노출이 있습니다. 다시 촬영하십시오.", "Glare/over-exposure. Please retake.") : T(`조명이 다릅니다 (밝기 ${(gate.dL * 100).toFixed(0)}%, 허용 ±10%). 다시 촬영하십시오.`, `Lighting differs (brightness ${(gate.dL * 100).toFixed(0)}%, allowed ±10%). Please retake.`), true);
-    }
-    const d = C.compare(b.measure, m);
-    const p = savePhoto("face", "daily", frames[frames.length - 1].canvas);
-    const list = cam().daily.filter((x) => !(x.day === day() && x.gate));
-    const prevHr = cam().daily.find((x) => x.day === day() && x.hrStatus);
-    const entry = { day: day(), gate: true, dFace: +d.face.toFixed(2), dEye: +d.eye.toFixed(2), rois: Object.fromEntries(Object.entries(d.rois).map(([k, v]) => [k, +v.toFixed(2)])), dL: +gate.dL.toFixed(3), photoId: p.id };
-    if (prevHr) Object.assign(entry, { hr: prevHr.hr, resp: prevHr.resp, hrStatus: prevHr.hrStatus, hrReasons: prevHr.hrReasons });
-    cam().daily = list.filter((x) => x.day !== day()).concat([entry]);
-    last = { gate, m, d, photoId: p.id };
-    api.save(); api.changed();
-    const changed = d.face >= C.GATE.redWatch || d.eye >= C.GATE.redWatch;
-    setMsg(changed ? T("기준 대비 붉기 변화 있음, 확인 필요.", "Redness changed vs reference — please check.") : T("기준 대비 큰 붉기 변화 없음.", "No large redness change vs reference."), changed);
+  function commit() { api.save(); api.changed(); }
+
+  /* ───── 기준 세션: 3회 촬영 중앙값, ROI별 a* 범위 > 2.0이면 거부 ───── */
+  function doReference(sets, source) {
+    const norm = curNorm();
+    const ms = sets.map((fr) => measureAll(fr, norm));
+    let res;
+    if (ms.length >= 2) res = C.baselineSession(ms);
+    else res = { ok: true, measure: ms[0], ranges: {} };
+    if (!res.ok) return setMsg(T("촬영 간 편차가 큽니다 — 조명·자세 확인 후 재촬영 (기준 확정 거부, 값 저장 안 함). 범위", "Captures differ too much — check lighting and pose, then retake (reference not set, nothing saved). Range") + ": " + Object.entries(res.ranges).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(", "), true);
+    const gt = C.gate(null, res.measure);
+    if (!gt.ok) return setMsg(T("기준 촬영 품질 미달", "Reference capture failed quality gate") + ": " + gt.reasons.map(rt).join(", "), true);
+    const last = sets[sets.length - 1][sets[sets.length - 1].length - 1];
+    const p = savePhoto("face", "baseline", last.canvas);
+    cam().ref = { measure: { rois: res.measure.rois, bg: res.measure.bg }, roiNorm: norm, gray: C.gray32(last.data, W, H), photoId: p.id, day: day(), source, captures: sets.length };
+    CD.addRecord(cam(), { id: newId("rec"), day: day(), ts: Date.now(), kind: "daily", source, synthetic: false, rois: pack(res.measure.rois), bg: res.measure.bg, gate: { ok: true, reasons: [], warn: gt.warn }, conf: gt.conf, photoId: p.id });
+    roiNorm = null; commit();
+    setMsg(T(`기준 촬영 완료 (${sets.length}회 촬영 중앙값). 이후 촬영은 같은 자세·조명으로 맞추십시오.`, `Reference set (median of ${sets.length} captures). Match this pose and lighting later.`) + (gt.warn.length ? " · " + gt.warn.map(rt).join(", ") : ""));
   }
 
-  /* ───── 30초 심박·호흡 (보조) ───── */
+  /* ───── 오늘 촬영: ROI별 게이트 + 위치(NCC) + 배경 조명 참조 ───── */
+  function doDaily(frames, source) {
+    const ref = cam().ref;
+    if (!ref) return setMsg(T("먼저 기준을 촬영하십시오.", "Capture a reference first."), true);
+    const m = measureAll(frames, ref.roiNorm);
+    const last = frames[frames.length - 1];
+    const ncc = ref.gray ? C.ncc(ref.gray, C.gray32(last.data, W, H)) : null;
+    const gt = C.gate(ref.measure, m, { ncc });
+    const p = gt.ok ? savePhoto("face", "daily", last.canvas) : null;
+    CD.addRecord(cam(), { id: newId("rec"), day: day(), ts: Date.now(), kind: "daily", source, synthetic: false, rois: pack(m.rois), bg: m.bg, gate: { ok: gt.ok, reasons: gt.reasons, warn: gt.warn, dL: r2(gt.dL), ncc: r2(ncc) }, conf: gt.conf, photoId: p ? p.id : null });
+    commit();
+    if (!gt.ok) {
+      const pct = gt.dL !== null ? ` (${(gt.dL * 100).toFixed(0)}%, ${T("허용", "allowed")} ±10%)` : "";
+      return setMsg(T("재촬영 필요", "Please retake") + ": " + gt.reasons.map((r) => rt(r) + (r === "tooDark" || r === "tooBright" ? pct : "")).join(", ") + (gt.reasons.includes("position") ? " — " + T("기준 사진 반투명 오버레이에 맞추십시오", "align with the semi-transparent reference overlay") : "") + T(" (기록은 '품질 미달'로 저장, 추세·규칙 제외)", " (stored as 'failed', excluded from trend and rules)"), true);
+    }
+    const d = CD.deltas(cam(), day(), "face");
+    const changed = d.rulesOn && d.dBase !== null && d.dBase >= C.GATE.redWatch;
+    setMsg((changed ? T("기준 대비 붉기 변화 있음, 확인 필요.", "Redness changed vs baseline — please check.") : T("촬영 저장됨.", "Capture saved.")) + (gt.warn.length ? " · " + gt.warn.map(rt).join(", ") : "") + (gt.conf === "low" ? " · " + T("낮은 신뢰 — 표시만", "low confidence — display only") : ""), changed || gt.conf === "low");
+  }
+
+  /* ───── 재현성 점검: 연속 2회 촬영 ROI별 |Δa*| ───── */
+  async function doRepeat() {
+    const ref = cam().ref; if (!ref) return setMsg(T("먼저 기준을 촬영하십시오.", "Capture a reference first."), true);
+    const a = measureAll(await grab(3), ref.roiNorm);
+    setMsg(T("두 번째 촬영 중… 같은 자세 유지", "Second capture… hold the same pose"));
+    await sleep(800);
+    const b = measureAll(await grab(3), ref.roiNorm);
+    repeatRes = CD.repeatability({ rois: a.rois }, { rois: b.rois }, C.GATE.repeat);
+    setMsg(repeatRes.warn ? T("잡음이 커서 +3 기준이 의미 없을 수 있음 (어느 영역 차이 > 1.5)", "Noise is large — the +3 threshold may be meaningless (a region differs by > 1.5)") : T("연속 2회 차이 ≤ 1.5 — 이 조건의 잡음 바닥", "Two captures differ ≤ 1.5 — noise floor under these conditions"), repeatRes.warn);
+  }
+
+  /* ───── 30초 심박·호흡 (보조) — 실측 타임스탬프·움직임 기록 ───── */
   async function doHr() {
     if (!(await start())) return;
-    busy = true; hrProgress = 0; render(); // 먼저 다시 그린 뒤 새 video 요소를 잡아야 함(분리된 요소는 프레임이 오지 않음)
-    const v = $("#camVideo"), track = stream.getVideoTracks()[0];
+    busy = true; hrProgress = 0; render();
+    const v = $("#camVideo");
     await v.play().catch(() => {});
-    const fps = (track.getSettings && track.getSettings().frameRate) || 30;
-    const cv = document.createElement("canvas"); cv.width = 160; cv.height = 120;
+    if (v.scrollIntoView) v.scrollIntoView({ block: "center" });
+    setMsg(T("30초 측정 중 — 화면을 스크롤하지 말고 움직이지 마십시오 (화면 밖이면 프레임이 줄어 결과를 낼 수 없습니다).", "Measuring for 30 s — keep still and do not scroll (off-screen video drops frames and gives no result)."));
+    const cv = document.createElement("canvas"); cv.width = 120; cv.height = 160;
     const x = cv.getContext("2d", { willReadFrequently: true });
-    const rects = C.roiRects(160, 120), face = ["forehead", "cheekL", "cheekR"];
-    const s = { t: [], g: [], L: [] }, t0 = performance.now(), DUR = 30000;
+    const rects = C.roiRects(120, 160, curNorm()), face = ["forehead", "cheekL", "cheekR"];
+    const s = { t: [], g: [], L: [], m: [] }, t0 = performance.now(), DUR = 30000;
+    let prev = null;
     await new Promise((resolve) => {
-      const step = (now) => {
-        const el = (performance.now() - t0);
-        x.drawImage(v, 0, 0, 160, 120);
-        const d = x.getImageData(0, 0, 160, 120).data;
-        let gg = 0, L = 0;
-        for (const k of face) { const st = C.roiStats(d, 160, rects[k]); gg += st.g; L += st.L; }
-        s.t.push(el / 1000); s.g.push(gg / 3); s.L.push(L / 3);
+      let lastMt = -1;
+      const step = (now, meta) => {
+        const el = performance.now() - t0;
+        const mt = meta && meta.mediaTime !== undefined ? meta.mediaTime : null;
+        if (mt === null || mt !== lastMt) {
+          lastMt = mt;
+          drawCover(x, v, 120, 160);
+          const d = x.getImageData(0, 0, 120, 160).data;
+          let gg = 0, r = 0, b = 0, n = 0;
+          for (const k of face) { const rc = rects[k]; for (let yy = rc.y; yy < rc.y + rc.h; yy++) for (let xx = rc.x; xx < rc.x + rc.w; xx++) { const i = (yy * 120 + xx) * 4; r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++; } }
+          const gray = []; for (let i = 0; i < d.length; i += 16) gray.push(d[i + 1]);
+          let mm = 0; if (prev) { for (let i = 0; i < gray.length; i++) mm += Math.abs(gray[i] - prev[i]); mm /= gray.length; } prev = gray;
+          s.t.push(el / 1000); s.g.push(gg / n); s.L.push(C.rgbToLab(r / n, gg / n, b / n).L); s.m.push(mm);
+        }
         hrProgress = Math.min(1, el / DUR); const pb = $("#hrProg"); if (pb) pb.value = hrProgress;
         if (el >= DUR || !stream) return resolve();
-        if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(step); else requestAnimationFrame(step);
+        next();
       };
-      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(step); else requestAnimationFrame(step);
+      const next = () => {
+        let fired = false;
+        const go = (now, meta) => { if (fired) return; fired = true; clearTimeout(to); step(now, meta); };
+        const to = setTimeout(go, 100); // 화면 밖이면 프레임 콜백이 멈출 수 있음 → 타이머로 진행(누락은 게이트가 판정)
+        if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(go);
+      };
+      next();
     });
     stop(); busy = false; hrProgress = null;
-    const r = C.vitalsFromSamples(s, fps);
-    const today = cam().daily.find((e) => e.day === day()) || (cam().daily.push({ day: day() }), cam().daily[cam().daily.length - 1]);
-    Object.assign(today, { hrStatus: r.status, hrReasons: r.reasons, hr: r.status === "ok" ? Math.round(r.bpm) : null, resp: r.resp ? Math.round(r.resp) : null, hrSnr: isFinite(r.snr) ? +r.snr.toFixed(1) : null, frames: s.t.length });
-    api.save(); api.changed();
+    const r = C.vitalsFromSamples(s);
+    CD.addRecord(cam(), { id: newId("hr"), day: day(), ts: Date.now(), kind: "hr", source: "camera", synthetic: false, rois: {}, conf: "ok",
+      gate: { ok: r.status === "ok", reasons: r.reasons }, hr: r.status === "ok" ? Math.round(r.bpm) : null, resp: r.resp ? Math.round(r.resp) : null, snr: isFinite(r.snr) ? r2(r.snr) : null, frames: s.t.length, fps: r2(r.fps) });
+    commit();
     setMsg(r.status === "ok" ? T(`카메라 심박 ${Math.round(r.bpm)} bpm — 보조 참고값, 정확도 미검증.`, `Camera HR ${Math.round(r.bpm)} bpm — auxiliary reference, accuracy unverified.`)
-      : T("측정 불가 — 품질 게이트 미통과", "Unavailable — quality gate failed") + ` (${r.reasons.join(", ")})`, r.status !== "ok");
+      : T("측정 불가 — 품질 게이트 미통과", "Unavailable — quality gate failed") + ` (${r.reasons.map(rt).join(", ")})`, r.status !== "ok");
   }
 
-  /* ───── 부위 촬영 B ───── */
-  function doSite(frame, region, note) {
-    const box = { x: W * 0.35, y: H * 0.35, w: W * 0.3, h: H * 0.3 };
-    const st = C.roiStats(frame.data, W, { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.w), h: Math.round(box.h) });
-    const p = savePhoto(region, "site", frame.canvas, note);
-    const regs = cam().regions;
-    let d = null, info;
-    if (!regs[region]) { regs[region] = { ref: { a: st.a, L: st.L }, photoId: p.id }; info = T("이 부위의 첫 사진 — 비교 기준이 됩니다.", "First photo of this site — it becomes the reference."); }
-    else {
-      const ref = regs[region].ref, dl = (st.L - ref.L) / ref.L;
-      if (Math.abs(dl) > C.GATE.tolL || st.sat >= C.GATE.maxSat) info = T("조명이 기준과 다릅니다 — 사진은 저장했지만 붉기 변화는 계산하지 않았습니다.", "Lighting differs from the reference — photo saved, redness change not computed.");
-      else { d = +(st.a - ref.a).toFixed(2); info = T(`기준 사진 대비 Δa* ${d >= 0 ? "+" : ""}${d}`, `Δa* vs reference ${d >= 0 ? "+" : ""}${d}`); }
-    }
-    cam().skin = (cam().skin || []).concat([{ day: day(), region, d: region === "eye" ? null : d, photoId: p.id }]);
-    api.save(); api.changed(); setMsg(info);
+  /* ───── 부위 촬영: 부위 ID별 기준(첫 사진)·추세 ───── */
+  function ensureSite() {
+    const sites = cam().sites;
+    if (siteSel && sites[siteSel]) return sites[siteSel];
+    const region = $("#siteRegion").value, n = Object.values(sites).filter((x) => x.region === region).length + 1;
+    const id = region + "-" + n; sites[id] = { id, region, label: `${rname(region)}-${n}`, created: day() }; siteSel = id;
+    return sites[id];
+  }
+  function doSite(frame, source) {
+    if (!siteRect) return setMsg(T("측정할 영역을 지정하십시오 (영상 위에서 끌어 사각형 그리기).", "Set the region to measure (drag a box on the image)."), true);
+    const site = ensureSite(), key = "site:" + site.id;
+    const m = C.siteMeasure(frame.data, W, H, siteRect);
+    const ref = CD.siteRef(cam(), site.id);
+    const gt = C.siteGate(ref ? ref.rois.site : null, m);
+    const p = savePhoto(site.region, "site", frame.canvas, $("#siteNote").value);
+    CD.addRecord(cam(), { id: newId("site"), day: day(), ts: Date.now(), kind: "site", siteId: site.id, source, synthetic: false, rois: pack(m.rois), bg: m.bg, gate: { ok: gt.ok, reasons: gt.reasons }, conf: "ok", photoId: p.id, rect: siteRect });
+    commit();
+    if (!ref && gt.ok) return setMsg(T(`${site.label}: 첫 사진 — 비교 기준이 됩니다.`, `${site.label}: first photo — it becomes the reference.`));
+    if (!gt.ok) return setMsg(T("사진은 저장했지만 붉기 변화는 계산하지 않았습니다", "Photo saved, redness change not computed") + ": " + gt.reasons.map(rt).join(", "), true);
+    const d = CD.deltas(cam(), day(), key);
+    setMsg(`${site.label}: ${T("기준 사진 대비", "vs reference")} Δa* ${d.dBase === null ? "--" : sg(d.dBase)}${site.region === "mouth" || site.region === "eye" ? " · " + T("기록만, 판정 없음", "log only, no judgement") : ""}`, d.dBase !== null && d.dBase >= C.GATE.redWatch);
+  }
+  function deleteSitePhoto(photoId) {
+    const r = CD.removeRecord(cam(), photoId);
+    api.store.photos.remove(photoId);
+    commit();
+    setMsg(r.refChanged ? (r.newRef ? T(`기준 사진이 삭제되어 남은 가장 오래된 사진(D${r.newRef.day})이 새 기준입니다.`, `Reference deleted — the oldest remaining photo (D${r.newRef.day}) is the new reference.`) : T("기준 사진이 삭제되었고 남은 사진이 없습니다.", "Reference deleted; no photos remain.")) : T("사진을 삭제했습니다. 추세·Δ를 다시 계산했습니다.", "Photo deleted; trend and Δ recomputed."));
   }
 
-  /* 결막(아래 눈꺼풀 안쪽) ROI: 사용자가 사진을 눌러 지정 → a* 기록만 */
+  /* 결막(아래 눈꺼풀 안쪽): 사용자가 사진을 눌러 지정 → a* 기록만 (빈혈 판정 아님, 규칙 연결 없음) */
   function conjAt(photo, fx, fy) {
     const img = new Image();
     img.onload = () => {
       const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
       const x = cv.getContext("2d"); x.drawImage(img, 0, 0);
       const s = Math.round(img.width * 0.06), r = { x: Math.max(0, Math.round(fx * img.width - s / 2)), y: Math.max(0, Math.round(fy * img.height - s / 2)), w: s, h: s };
-      const st = C.roiStats(x.getImageData(0, 0, img.width, img.height).data, img.width, r);
-      cam().conj = (cam().conj || []).concat([{ day: day(), photoId: photo.id, a: +st.a.toFixed(2) }]);
-      api.save(); setMsg(T(`결막 영역 a* ${st.a.toFixed(1)} 기록 — 빈혈 판정 아님 (선별 연구 특이도 72–76% 수준, 오탐 많음)`, `Conjunctival a* ${st.a.toFixed(1)} logged — not an anaemia judgement (screening studies: specificity ~72–76%, many false positives)`));
+      const d = x.getImageData(0, 0, img.width, img.height).data; let R = 0, G = 0, B = 0, n = 0;
+      for (let yy = r.y; yy < r.y + r.h; yy++) for (let xx = r.x; xx < r.x + r.w; xx++) { const i = (yy * img.width + xx) * 4; R += d[i]; G += d[i + 1]; B += d[i + 2]; n++; }
+      const a = C.rgbToLab(R / n, G / n, B / n).a;
+      cam().conj = (cam().conj || []).concat([{ day: day(), photoId: photo.id, a: r2(a) }]);
+      api.save(); setMsg(T(`결막 영역 a* ${a.toFixed(1)} 기록 — 빈혈 판정 아님 (선별 연구 특이도 72–76% 수준, 오탐 많음)`, `Conjunctival a* ${a.toFixed(1)} logged — not an anaemia judgement (screening studies: specificity ~72–76%, many false positives)`));
     };
     img.src = photo.dataUrl;
   }
 
   function exportJson() {
-    const c = cam();
-    const data = { exported: new Date().toISOString(), note: "Ujumin camera numbers only - no photos or video. SIMULATED/PROTOTYPE, not for clinical use.",
-      missionDay: day(), reference: c.baseline ? { day: c.baseline.day, face: c.baseline.measure.face, eye: c.baseline.measure.eye, L: c.baseline.measure.L } : null,
-      daily: c.daily.map(({ photoId, ...rest }) => rest), sites: (c.skin || []).map(({ photoId, ...rest }) => rest), conjunctiva: (c.conj || []).map(({ photoId, ...rest }) => rest) };
+    const data = CD.exportData(cam(), day());
+    data.exported = new Date().toISOString();
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
     a.download = `ujumin-camera-D${day()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
@@ -190,89 +276,114 @@
     if (r) root = r; if (a) api = a;
     const c = cam();
     if (!c.consent) {
-      root.innerHTML = `<div class="panel" style="max-width:720px"><h2>${T("카메라 점검 동의", "Camera check consent")}</h2><ul>
+      root.innerHTML = `<div class="panel"><h2>${T("카메라 점검 동의", "Camera check consent")}</h2><ul>
         <li>${T("영상·사진은 이 기기 안에서만 처리하며 네트워크로 보내지 않습니다.", "Video and photos are processed on this device only and never sent over the network.")}</li>
         <li>${T("원본 영상은 저장하지 않습니다. 촬영 직후 카메라를 끕니다.", "Raw video is never stored. The camera is turned off right after each capture.")}</li>
-        <li>${T("기준·일일 사진(축소본)과 수치만 브라우저 저장소에 저장하며, 언제든 전체 삭제할 수 있습니다.", "Only reduced reference/daily photos and numbers are kept in browser storage; delete them all at any time.")}</li>
-        <li>${T("진단하지 않습니다. 기준 대비 변화량과 사진 증거만 보여 줍니다. 카메라 단독으로는 '주의'까지만 표시합니다.", "No diagnosis. Shows change vs your reference and photo evidence only. Camera alone reaches Watch at most.")}</li>
-        <li>${T("할 수 없는 것: SANS·심장·신장 등 내부 질환, 졸음·뇌졸중·빈혈 판정.", "Cannot do: internal conditions (SANS, heart, kidney), drowsiness / stroke / anaemia judgement.")}</li></ul>
+        <li>${T("축소 사진과 수치만 브라우저 저장소에 저장하며, 언제든 전체 삭제할 수 있습니다.", "Only reduced photos and numbers are kept in browser storage; delete them all at any time.")}</li>
+        <li>${T("진단하지 않습니다. 기준 대비 변화량과 사진 증거만 보여 줍니다. 카메라 단독으로는 '주의'까지만, 카드를 만들지 않습니다.", "No diagnosis. Shows change vs your baseline and photo evidence only. Camera alone reaches Watch at most and never creates a card.")}</li>
+        <li>${T("할 수 없는 것: SANS·심장·신장 등 내부 질환, 졸음·뇌졸중·빈혈·황달 판정. 피부색별 정확도는 검증되지 않았습니다(D0).", "Cannot do: internal conditions (SANS, heart, kidney), drowsiness / stroke / anaemia / jaundice judgement. Accuracy across skin tones is not validated (D0).")}</li></ul>
         <div class="btns"><button class="primary" id="consentYes">${T("동의하고 시작", "Agree and start")}</button><button id="consentNo">${T("동의하지 않음 (카메라 없이 사용)", "Decline (use without camera)")}</button></div></div>`;
-      $("#consentYes").onclick = () => { c.consent = true; api.save(); render(); };
-      $("#consentNo").onclick = () => setMsgInline(T("카메라 없이도 모든 점검·응급 기능을 쓸 수 있습니다.", "All check-in and emergency features work without the camera."));
+      $("#consentYes").onclick = () => { c.consent = true; api.save(); api.changed(); render(); };
+      $("#consentNo").onclick = () => { const p = document.createElement("p"); p.className = "muted"; p.textContent = T("카메라 없이도 모든 점검·응급 기능을 쓸 수 있습니다.", "All check-in and emergency features work without the camera."); root.querySelector(".panel").appendChild(p); };
       return;
     }
-    const photos = api.store.photos.all();
-    const ph = (id) => photos.find((p) => p.id === id);
-    const b = c.baseline, todayD = c.daily.filter((x) => x.day === day() && x.gate).pop();
-    const hrD = c.daily.filter((x) => x.day === day() && x.hrStatus).pop();
-    const base = b && ph(b.photoId), cur = todayD && ph(todayD.photoId);
-    const badge = (v) => (v >= C.GATE.redWatch ? `<span class="stage s1" style="display:inline">* △ ${T("주의", "Watch")}</span>` : `<span class="stage s0" style="display:inline">○</span>`);
-    const sitesByRegion = REGIONS.map((rg) => [rg, photos.filter((p) => p.region === rg && (p.kind === "site"))]).filter(([, l]) => l.length);
-    const eyePhotos = photos.filter((p) => p.region === "eye");
+    const photos = api.store.photos.all(), ph = (id) => photos.find((p) => p.id === id);
+    const ref = c.ref, refPhoto = ref && ph(ref.photoId);
+    const todayRec = CD.dayRecord(c, day(), "face") || CD.dayRecords(c, day(), "face").pop();
+    const curPhoto = todayRec && todayRec.photoId && ph(todayRec.photoId);
+    const sites = Object.values(c.sites || {});
+    const dis = busy ? "disabled" : "";
     root.innerHTML = `<div class="cam-grid"><div>
-      <div class="panel"><h2>${T("카메라", "Camera")} <span class="dim">640×480 · ${T("보조 신호", "auxiliary signal")}</span></h2>
-        <div class="stagebox"><video id="camVideo" playsinline muted></video><canvas id="camOv" class="ov"></canvas>${stream ? "" : `<div class="empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);text-align:center;padding:12px">${T("카메라 꺼짐 — 켜거나 사진 파일을 고르십시오", "Camera off — turn it on or choose a photo file")}</div>`}</div>
-        <div class="btns" style="margin-top:8px"><button id="camOn" ${busy ? "disabled" : ""}>${T("카메라 켜기", "Camera on")}</button><button id="camOff">${T("끄기", "Off")}</button>
+      <div class="panel"><h2>${T("카메라", "Camera")} <span class="dim">480×640 · ${T("보조 신호 · D0", "auxiliary · D0")}</span></h2>
+        <div class="btns seg"><button id="mFace" class="${mode === "face" ? "on" : ""}">${T("얼굴 정기 점검", "Face routine")}</button><button id="mSite" class="${mode === "site" ? "on" : ""}">${T("부위 촬영", "Site photo")}</button></div>
+        <div class="stagebox" id="stage"><video id="camVideo" playsinline muted></video>${mode === "face" && refPhoto ? `<img class="ghost" src="${refPhoto.dataUrl}" alt="">` : ""}<canvas id="camOv" class="ov"></canvas>${stream ? "" : `<div class="empty camoff">${T("카메라 꺼짐 — 켜거나 사진 파일을 고르십시오", "Camera off — turn it on or choose a photo file")}</div>`}</div>
+        <p class="dim" style="font-size:11.5px;margin:4px 0 0">${mode === "face" ? (ref ? T("반투명 = 기준 사진. 같은 자세로 맞추십시오. 영역 박스는 기준 촬영 전에 끌어서 조정합니다.", "Translucent = reference photo; match the pose. Region boxes are dragged before the reference capture.") : T("영역 박스(이마·뺨·눈·입술)를 끌어 얼굴에 맞춘 뒤 기준을 촬영하십시오.", "Drag the region boxes (forehead, cheeks, eye, lips) onto the face, then capture the reference.")) : T("영상 위에서 끌어 측정할 사각형을 그리십시오.", "Drag on the image to draw the box to measure.")}${locks ? ` · ${T("노출·WB 고정", "exposure/WB lock")}: ${esc(locks)}` : ""}</p>
+        <div class="btns" style="margin-top:6px"><button id="camOn" ${dis}>${T("카메라 켜기", "Camera on")}</button><button id="camOff">${T("끄기", "Off")}</button>
           <label class="muted" style="font-size:12px;align-self:center">${T("또는 사진 파일", "or photo file")}: <input type="file" accept="image/*" id="camFile" aria-label="photo file"></label></div>
         <p id="camMsg" class="${msg && msg.bad ? "bad" : "ok"}" role="status" style="min-height:1.4em;margin:8px 0 0">${esc(msg ? msg.m : "")}</p>
-        <h3>A. ${T("정기 점검", "Routine check")}</h3>
-        <div class="btns"><button id="capBase" ${busy ? "disabled" : ""}>${b ? T("기준 다시 촬영", "Retake reference") : T("기준 촬영 (5프레임 평균)", "Capture reference (5-frame mean)")}</button>
-          <button id="capDaily" class="primary" ${busy || !b ? "disabled" : ""}>${T("오늘 촬영·비교", "Capture today & compare")}</button>
-          <button id="capHr" ${busy ? "disabled" : ""}>${T("30초 심박·호흡 (선택)", "30-s HR & resp (optional)")}</button></div>
-        ${hrProgress !== null ? `<progress id="hrProg" max="1" value="${hrProgress}" style="margin-top:6px"></progress><p class="muted" style="font-size:12px">${T("움직이지 말고 30초 유지", "Hold still for 30 s")}</p>` : ""}
-        <p class="dim" style="font-size:11.5px">${T("카메라 심박: 정지 상태 35명(전원 백인) 실험실 연구 1개뿐(D1). 품질 게이트(피크 SNR, 프레임 드롭 <10%, 조명 변동) 실패 시 '측정 불가'. 호흡수는 기록만.", "Camera HR: one lab study, n=35, all white, at rest (D1). Shows 'unavailable' if the quality gate (peak SNR, frame drop <10%, lighting stability) fails. Resp. rate is logged only.")}</p>
-        <h3>B. ${T("부위 촬영 (필요할 때)", "Site photo (when needed)")}</h3>
-        <div class="btns"><select id="siteRegion" aria-label="region">${REGIONS.map((x) => `<option value="${x}">${esc(rname(x))}</option>`).join("")}</select>
-          <input type="text" id="siteNote" placeholder="${T("메모 (선택)", "note (optional)")}" style="flex:1;min-width:120px"><button id="capSite" ${busy ? "disabled" : ""}>${T("부위 촬영", "Capture site")}</button></div>
-        <p class="dim" style="font-size:11.5px">${T("파일을 고를 때는 아래 동작을 먼저 선택하십시오", "When using a file, pick what it is for")}: <select id="fileFor"><option value="daily">${T("오늘 정기 촬영", "today routine")}</option><option value="base">${T("기준 촬영", "reference")}</option><option value="site">${T("부위 촬영", "site photo")}</option></select></p>
+        ${mode === "face" ? `
+        <div class="btns"><button id="capBase" ${dis}>${ref ? T("기준 다시 촬영 (3회)", "Retake reference (3×)") : T("기준 촬영 (3회 중앙값)", "Capture reference (median of 3)")}</button>
+          <button id="capDaily" class="primary" ${busy || !ref ? "disabled" : ""}>${T("오늘 촬영·비교", "Capture today & compare")}</button>
+          <button id="capRepeat" ${busy || !ref ? "disabled" : ""}>${T("재현성 점검 (연속 2회)", "Repeatability (2 in a row)")}</button>
+          <button id="capHr" ${dis}>${T("30초 심박·호흡", "30-s HR & resp")}</button></div>
+        <p class="dim" style="font-size:11.5px">${T("파일 사용 시", "With a file")}: <select id="fileFor"><option value="daily">${T("오늘 촬영", "today")}</option><option value="base">${T("기준 (1장 — 3회 검증 생략)", "reference (1 image — 3× check skipped)")}</option></select></p>
+        ${hrProgress !== null ? `<progress id="hrProg" max="1" value="${hrProgress}" style="margin-top:6px"></progress>` : ""}
+        <p class="dim" style="font-size:11.5px">${T("카메라 심박: 정지 상태 35명(전원 백인) 실험실 연구 1개(D1). 실측 타임스탬프로 프레임 누락 판정, 움직임·대역 가장자리·하모닉 게이트. 호흡수는 기록만.", "Camera HR: one lab study, n=35, all white, at rest (D1). Frame drop judged from measured timestamps; motion, band-edge and harmonic gates. Resp. rate is logged only.")}</p>` : `
+        <div class="btns"><select id="siteSel" aria-label="site"><option value="">${T("새 부위 ID", "new site ID")}</option>${sites.map((s) => `<option value="${esc(s.id)}" ${s.id === siteSel ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>
+          <select id="siteRegion" aria-label="region">${REGIONS.map((x) => `<option value="${x}">${esc(rname(x))}</option>`).join("")}</select>
+          <input type="text" id="siteNote" placeholder="${T("메모 (선택)", "note (optional)")}" style="flex:1;min-width:100px"><button id="capSite" ${dis}>${T("부위 촬영", "Capture site")}</button></div>
+        <p class="dim" style="font-size:11.5px">${T("부위 ID마다 첫 사진이 기준입니다(팔-1, 팔-2는 따로). 파일을 고르면 부위 사진으로 처리합니다.", "Each site ID uses its first photo as reference (arm-1 and arm-2 are separate). A chosen file is treated as a site photo.")}</p>`}
       </div>
       <div class="panel"><h2>${T("저장·내보내기", "Storage & export")}</h2>
         <div class="btns"><button id="camExport">${T("수치 JSON 내보내기 (사진 제외)", "Export numbers as JSON (no photos)")}</button><button id="camDelete" class="danger">${T("카메라 데이터 전체 삭제", "Delete all camera data")}</button></div>
-        <p class="dim" style="font-size:11.5px">${T("저장 사진", "Stored photos")}: ${photos.length} · ${T("네트워크 요청 0건 (CSP connect-src 'none')", "0 network requests (CSP connect-src 'none')")}</p></div>
+        <p class="dim" style="font-size:11.5px">${T("저장 사진", "Stored photos")}: ${photos.length} · ${T("저장 용량", "storage")} ${Math.round(api.store.usage().frac * 100)}% · ${T("네트워크 요청 0건", "0 network requests")}</p></div>
     </div><div>
-      <div class="panel"><h2>${T("기준 vs 오늘", "Reference vs today")}</h2>
-        ${base && cur ? `<div class="cmp" id="cmp" style="--split:50%"><img src="${base.dataUrl}" alt="reference"><img class="top" src="${cur.dataUrl}" alt="today"><div class="bar"></div><span class="cap l">${T("기준", "REF")} D${b.day}</span><span class="cap r">${T("오늘", "TODAY")} D${todayD.day}</span></div>
-          <input type="range" id="split" min="0" max="100" value="50" style="width:100%" aria-label="${T("비교 슬라이더", "comparison slider")}">`
-          : `<p class="muted">${b ? T("오늘 촬영하면 기준과 나란히 비교합니다.", "Capture today to compare side by side.") : T("먼저 기준을 촬영하십시오.", "Capture a reference first.")}</p>`}
-        ${todayD ? `<table><tr><th>ROI</th><th>Δa*</th><th></th></tr>${Object.entries(todayD.rois).map(([k, v]) => `<tr><td class="mono">${k}</td><td class="mono">${v >= 0 ? "+" : ""}${v.toFixed(1)}</td><td>${badge(v)}</td></tr>`).join("")}
-          <tr><td class="mono"><b>face</b></td><td class="mono"><b>${todayD.dFace >= 0 ? "+" : ""}${todayD.dFace.toFixed(1)}</b></td><td>${badge(todayD.dFace)}</td></tr>
-          <tr><td class="mono"><b>eye</b></td><td class="mono"><b>${todayD.dEye >= 0 ? "+" : ""}${todayD.dEye.toFixed(1)}</b></td><td>${badge(todayD.dEye)}</td></tr></table>
-          <p class="dim" style="font-size:11.5px">${T("주의 임계값 Δa* +3은 데모 값(근거 없음, D0). 문구는 '기준 대비 붉기 변화 있음, 확인 필요'까지만. 조명 차", "Watch threshold Δa* +3 is a demo value (no evidence, D0). Wording stops at 'redness changed vs reference — check'. Lighting diff")} ${(todayD.dL * 100).toFixed(1)}%</p>` : ""}
-        ${hrD ? `<p class="mono">CAM-HR: ${hrD.hrStatus === "ok" ? hrD.hr + " bpm" : "-- (" + T("측정 불가", "unavailable") + ": " + esc((hrD.hrReasons || []).join(", ")) + ")"} · CAM-RESP: ${hrD.resp ? hrD.resp + "/min (" + T("기록만", "log only") + ")" : "--"}</p>` : ""}
-      </div>
+      ${mode === "face" ? `<div class="panel"><h2>${T("기준 vs 오늘", "Reference vs today")}</h2>
+        ${refPhoto && curPhoto ? `<div class="cmp" id="cmp" style="--split:50%"><img src="${refPhoto.dataUrl}" alt="reference"><img class="top" src="${curPhoto.dataUrl}" alt="today"><div class="bar"></div><span class="cap l">${T("기준", "REF")} D${ref.day}</span><span class="cap r">${T("오늘", "TODAY")} D${todayRec.day}</span></div>
+          <input type="range" id="split" min="0" max="100" value="50" style="width:100%" aria-label="${T("비교 슬라이더", "comparison slider")}">` : `<p class="muted">${ref ? T("오늘 촬영하면 기준과 나란히 비교합니다.", "Capture today to compare side by side.") : T("먼저 기준을 촬영하십시오.", "Capture a reference first.")}</p>`}
+        ${todayRec ? `<div class="scroll"><table><tr><th>ROI</th><th>a*</th><th>b*</th><th>L*</th><th>Δ${T("기준", "base")}</th><th></th></tr>${CD.ROIS.map((k) => { const x = todayRec.rois[k] || {}, d = CD.deltas(c, day(), k); return `<tr><td class="mono">${k}</td>${x.valid ? `<td class="mono">${x.a.toFixed(1)}</td><td class="mono">${x.b.toFixed(1)}</td><td class="mono">${x.L.toFixed(1)}</td>` : `<td colspan="3" class="bad">—(${esc(rt(x.reason))})</td>`}<td class="mono">${d.dBase === null ? "--" : sg(d.dBase)}</td><td>${d.dBase !== null && d.rulesOn && d.dBase >= C.GATE.redWatch ? "* △" : "○"}</td></tr>`; }).join("")}</table></div>
+          <p class="dim" style="font-size:11.5px">${T("b*·L*는 기록만 하며 판정하지 않습니다. 주의 임계 Δa* +3은 데모 값(D0). 게이트", "b* and L* are logged only, never judged. Watch threshold Δa* +3 is a demo value (D0). Gate")}: ${todayRec.gate.ok ? T("통과", "passed") : T("미달", "failed") + " — " + esc((todayRec.gate.reasons || []).map(rt).join(", "))}${todayRec.gate.ncc !== undefined && todayRec.gate.ncc !== null ? ` · NCC ${todayRec.gate.ncc}` : ""}</p>` : ""}
+        ${repeatRes ? `<h3>${T("재현성 (연속 2회 |Δa*|)", "Repeatability (|Δa*| of 2 captures)")}</h3><p class="mono" style="font-size:12px">${repeatRes.rows.map((x) => `${x.roi} ${x.diff === null ? "--" : x.diff.toFixed(2)}`).join(" · ")}</p><p class="${repeatRes.warn ? "bad" : "dim"}" style="font-size:11.5px">${repeatRes.warn ? T("잡음이 커서 +3 기준이 의미 없을 수 있음", "Noise is large — the +3 threshold may be meaningless") : T("+3은 근거 없는 데모 값입니다. 잡음 바닥을 직접 확인하는 용도입니다.", "+3 is an unsourced demo value; this shows the noise floor directly.")}</p>` : ""}
+      </div>` : ""}
       <div class="panel"><h2>${T("부위 사진 이력", "Site photo history")}</h2>
-        ${sitesByRegion.length ? sitesByRegion.map(([rg, l]) => `<h3>${esc(rname(rg))}</h3><div class="thumbs">${l.map((p) => { const s = (c.skin || []).find((x) => x.photoId === p.id); return `<div class="thumb"><img src="${p.dataUrl}" alt="${esc(rg)} D${p.day}" ${rg === "eye" ? `data-conj="${p.id}" style="cursor:crosshair" title="${T("눌러서 결막 영역 지정", "click to set conjunctival ROI")}"` : ""}>D${p.day}${s && s.d !== null && s.d !== undefined ? ` · Δa* ${s.d >= 0 ? "+" : ""}${s.d}` : ""}${p.note ? " · " + esc(p.note) : ""}</div>`; }).join("")}</div>`).join("") : `<p class="muted">${T("부위 사진 없음.", "No site photos.")}</p>`}
-        ${eyePhotos.length ? `<p class="dim" style="font-size:11.5px">${T("눈 사진을 누르면 그 지점(아래 눈꺼풀 안쪽)의 a*를 기록합니다. 빈혈 판정 아님.", "Click an eye photo to log a* at that point (inner lower eyelid). Not an anaemia judgement.")}${(c.conj || []).length ? " " + T("기록", "Logged") + ": " + c.conj.map((x) => `D${x.day} a* ${x.a}`).join(", ") : ""}</p>` : ""}
+        ${sites.length ? sites.map((st) => { const recs = c.records.filter((x) => x.kind === "site" && x.siteId === st.id).sort((a, b) => a.day - b.day || a.ts - b.ts), refR = CD.siteRef(c, st.id);
+          return `<h3>${esc(st.label)}</h3><div class="thumbs">${recs.map((x) => { const p = ph(x.photoId); const v = x.gate.ok && x.rois.site.valid && refR ? r2(x.rois.site.a - refR.rois.site.a) : null;
+            return `<div class="thumb">${p ? `<img src="${p.dataUrl}" alt="${esc(st.label)} D${x.day}" ${st.region === "eye" ? `data-conj="${p.id}" style="cursor:crosshair" title="${T("눌러서 결막 영역 지정", "click to set conjunctival ROI")}"` : ""}>` : ""}D${x.day}${x === refR ? " · " + T("기준", "ref") : v !== null ? ` · Δa* ${sg(v)}` : x.gate.ok ? "" : " · " + T("품질 미달", "failed")}${p ? ` <button class="mini" data-delphoto="${p.id}" aria-label="delete">✕</button>` : ""}</div>`; }).join("")}</div>`; }).join("")
+          : `<p class="muted">${T("부위 사진 없음.", "No site photos.")}</p>`}
+        ${(c.conj || []).length ? `<p class="dim" style="font-size:11.5px">${T("결막 a* 기록 (빈혈 판정 아님)", "Conjunctival a* log (not an anaemia judgement)")}: ${c.conj.map((x) => `D${x.day} ${x.a}`).join(", ")}</p>` : ""}
       </div></div></div>`;
-    if (stream) { const v = $("#camVideo"); v.srcObject = stream; v.play().catch(() => {}); drawOverlay(); }
+    if (stream) { const v = $("#camVideo"); v.srcObject = stream; v.play().catch(() => {}); }
+    drawOverlay();
     bind();
   }
-  function setMsgInline(m) { const p = document.createElement("p"); p.className = "muted"; p.textContent = m; root.querySelector(".panel").appendChild(p); }
 
   function bind() {
+    $("#mFace").onclick = () => { mode = "face"; render(); };
+    $("#mSite").onclick = () => { mode = "site"; render(); };
     $("#camOn").onclick = () => start().then(() => render());
     $("#camOff").onclick = () => { stop(); render(); };
-    const withFrames = async (n, fn) => { if (busy) return; if (!(await start())) return; busy = true; try { const f = await grab(n); stop(); fn(f); } finally { busy = false; render(); } };
-    $("#capBase").onclick = () => withFrames(5, doBaseline);
-    $("#capDaily").onclick = () => withFrames(5, doDaily);
-    $("#capHr").onclick = () => { if (!busy) doHr().then(() => render()); };
-    $("#capSite").onclick = () => withFrames(1, (f) => doSite(f[0], $("#siteRegion").value, $("#siteNote").value));
+    const run = async (fn) => { if (busy) return; if (!(await start())) return; busy = true; render(); try { if (!(await warmup())) { setMsg(T("카메라 안정화 실패 (4초 안에 밝기가 안정되지 않음) — 조명을 고정하고 다시 시도", "Camera did not stabilise (brightness not steady within 4 s) — fix the lighting and retry"), true); return; } await fn(); } finally { stop(); busy = false; render(); } };
+    const bBase = $("#capBase"); if (bBase) bBase.onclick = () => run(async () => { const sets = []; for (let i = 0; i < 3; i++) { sets.push(await grab(3)); await sleep(300); } doReference(sets, "camera"); });
+    const bDaily = $("#capDaily"); if (bDaily) bDaily.onclick = () => run(async () => doDaily(await grab(5), "camera"));
+    const bRep = $("#capRepeat"); if (bRep) bRep.onclick = () => run(doRepeat);
+    const bHr = $("#capHr"); if (bHr) bHr.onclick = () => { if (!busy) doHr().then(() => render()); };
+    const bSite = $("#capSite"); if (bSite) bSite.onclick = () => run(async () => doSite((await grab(1))[0], "camera"));
+    const ss = $("#siteSel"); if (ss) ss.onchange = () => { siteSel = ss.value; };
     $("#camFile").onchange = async (e) => {
       const file = e.target.files[0]; if (!file) return;
       try {
-        const f = await loadFile(file), what = $("#fileFor").value;
-        if (what === "base") doBaseline([f]); else if (what === "daily") doDaily([f]); else doSite(f, $("#siteRegion").value, $("#siteNote").value);
+        const f = await loadFile(file);
+        if (mode === "site") doSite(f, "file");
+        else if ($("#fileFor").value === "base") doReference([[f]], "file");
+        else doDaily([f], "file");
       } catch (err) { setMsg(T("이미지를 읽지 못했습니다.", "Could not read the image."), true); }
       render();
     };
     $("#camExport").onclick = exportJson;
-    $("#camDelete").onclick = () => { if (!confirm(T("사진·기준·카메라 수치를 모두 지웁니다.", "Delete all photos, reference and camera numbers?"))) return; stop(); api.store.clearCamera(api.S); last = null; setMsg(T("카메라 데이터를 모두 삭제했습니다.", "All camera data deleted.")); api.changed(); render(); };
+    $("#camDelete").onclick = () => { if (!confirm(T("사진·기준·카메라 수치를 모두 지웁니다. 체크인 기록은 남습니다.", "Delete all photos, reference and camera numbers? Check-in records are kept."))) return; stop(); api.store.clearCamera(api.S); repeatRes = null; siteSel = ""; setMsg(T("카메라 데이터를 모두 삭제했습니다.", "All camera data deleted.")); api.changed(); render(); };
     const sp = $("#split"); if (sp) sp.oninput = () => $("#cmp").style.setProperty("--split", sp.value + "%");
     root.querySelectorAll("[data-conj]").forEach((img) => img.addEventListener("click", (e) => {
       const r = img.getBoundingClientRect(), p = api.store.photos.all().find((x) => x.id === img.dataset.conj);
       if (p) conjAt(p, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
     }));
+    root.querySelectorAll("[data-delphoto]").forEach((b) => (b.onclick = () => { if (confirm(T("이 사진을 삭제할까요?", "Delete this photo?"))) { deleteSitePhoto(b.dataset.delphoto); render(); } }));
+    // 영역 조정: 얼굴 모드 = ROI 박스 끌기(기준 촬영 전), 부위 모드 = 사각형 그리기
+    const ov = $("#camOv");
+    const pt = (e) => { const r = ov.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; };
+    ov.onpointerdown = (e) => {
+      const [x, y] = pt(e);
+      if (mode === "site") { drag = { site: true, x0: x, y0: y }; siteRect = [x, y, x, y]; }
+      else { const n = curNorm(); const k = Object.keys(n).find((kk) => x >= n[kk][0] && x <= n[kk][2] && y >= n[kk][1] && y <= n[kk][3]); if (!k) return; roiNorm = JSON.parse(JSON.stringify(n)); drag = { k, x, y }; }
+      ov.setPointerCapture(e.pointerId); drawOverlay();
+    };
+    ov.onpointermove = (e) => {
+      if (!drag) return; const [x, y] = pt(e);
+      if (drag.site) siteRect = [Math.min(drag.x0, x), Math.min(drag.y0, y), Math.max(drag.x0, x), Math.max(drag.y0, y)].map((v) => Math.min(1, Math.max(0, v)));
+      else { const r = roiNorm[drag.k], dx = x - drag.x, dy = y - drag.y; const w = r[2] - r[0], h = r[3] - r[1]; const nx = Math.min(1 - w, Math.max(0, r[0] + dx)), ny = Math.min(1 - h, Math.max(0, r[1] + dy)); roiNorm[drag.k] = [nx, ny, nx + w, ny + h]; drag.x = x; drag.y = y; }
+      drawOverlay();
+    };
+    ov.onpointerup = () => { if (drag && drag.site && siteRect && (siteRect[2] - siteRect[0] < 0.02 || siteRect[3] - siteRect[1] < 0.02)) siteRect = null; drag = null; drawOverlay(); };
   }
 
-  UJ.cameraUI = { render, leave() { if (!busy) stop(); }, stop };
+  UJ.cameraUI = { render, leave() { if (!busy) stop(); }, stop, _test: { setSiteRect: (r) => { siteRect = r; }, setMode: (m) => { mode = m; } } };
 })(typeof window !== "undefined" ? window : globalThis);

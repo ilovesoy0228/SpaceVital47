@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const OUT = path.join(__dirname, "out", "videos");
 fs.mkdirSync(OUT, { recursive: true });
-const W = 320, H = 240, FPS = 30;
+const W = 240, H = 320, FPS = 30; // 앱의 세로 3:4 프레임과 같은 비율
 const SKIN = [200, 150, 130], BG = [40, 40, 48];
 
 function rand(seed) { return () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }; }
@@ -14,7 +14,7 @@ const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
 function write(name, frames, colorAt) {
   const fd = fs.openSync(path.join(OUT, name + ".y4m"), "w");
   fs.writeSync(fd, `YUV4MPEG2 W${W} H${H} F${FPS}:1 Ip A1:1 C420jpeg\n`);
-  const cx = W / 2, cy = H / 2, rx = W * 0.2, ry = H * 0.36;
+  const cx = W / 2, cy = H / 2, rx = W * 0.32, ry = H * 0.3;
   for (let f = 0; f < frames; f++) {
     const [skin, bg] = colorAt(f);
     const Y = Buffer.alloc(W * H), U = Buffer.alloc((W / 2) * (H / 2)), V = Buffer.alloc((W / 2) * (H / 2));

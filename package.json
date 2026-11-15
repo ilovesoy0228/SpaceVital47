@@ -4,7 +4,10 @@
   "description": "Ujumin astronaut health monitor prototype (NASA Space Apps 2026). Static files, no build step.",
   "scripts": {
     "test": "node --test tests/",
-    "test:e2e": "node tests/e2e.js"
+    "test:e2e": "node tests/e2e.js",
+    "test:ui-cases": "node tests/make-videos.js && node tests/e2e-cases.js",
+    "test:camera": "node tests/make-videos.js && node tests/e2e-camera.js",
+    "test:all": "npm run test:ui-cases && npm test && npm run test:e2e && npm run test:camera"
   },
   "devDependencies": {
     "playwright": "1.48.2"

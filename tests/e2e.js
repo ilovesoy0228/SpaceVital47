@@ -70,7 +70,8 @@ const ok = (c, m) => { console.log((c ? "✔ " : "✖ ") + m); if (!c) fails++; 
   const sw = await page.evaluate(() => document.documentElement.scrollWidth);
   ok(sw <= 390, `390px 가로 스크롤 없음 (scrollWidth ${sw})`);
   await page.screenshot({ path: path.join(OUT, "mobile-390.png"), fullPage: false });
-  for (const v of ["respond", "camera", "evidence"]) {
+  ok(!(await page.$('[data-view="camera"]')) && (await page.locator("#view-care #camSection #consentYes, #view-care #camSection #camVideo").count()) > 0, "카메라가 모니터·점검 화면 안에 있음 (별도 탭 없음)");
+  for (const v of ["respond", "evidence"]) {
     await page.click(`[data-view="${v}"]`); await page.waitForTimeout(150);
     const w = await page.evaluate(() => document.documentElement.scrollWidth);
     ok(w <= 390, `390px ${v} 가로 스크롤 없음 (${w})`);

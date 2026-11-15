@@ -1,12 +1,19 @@
 /* 우주민 ui.js — 화면. 숫자·단계는 전부 엔진 계산 결과(고정 텍스트 금지, §8.3). */
 (function () {
   "use strict";
-  const UJ = window.UJ, E = UJ.engine, store = UJ.store;
+  const UJ = window.UJ, E = UJ.engine, store = UJ.store, TL = UJ.timeline, CD = UJ.camdata;
   const loaded = E.loadRules(UJ.RULES, UJ.SOURCES);
   const rules = loaded.rules;
 
-  let S = store.load();
-  let view = "care", ev = null, active = [], sel = null, autoBanner = false, symOpen = null, radTimer = null, built = false;
+  let S = wire(store.load());
+  /* 오늘(보고 있는 임무일) 기록에 연결되는 접근자 — 저장 JSON에는 포함되지 않음 */
+  function dayObj() { if (!S.days[S.missionDay]) S.days[S.missionDay] = { checkin: store.emptyCheckin(), symptoms: {}, committed: false }; const d = S.days[S.missionDay]; d.checkin = d.checkin || store.emptyCheckin(); d.symptoms = d.symptoms || {}; return d; }
+  function wire(st) {
+    Object.defineProperty(st, "today", { get() { return dayObj().checkin; }, set(v) { dayObj().checkin = v; }, enumerable: false, configurable: true });
+    Object.defineProperty(st, "symptoms", { get() { return dayObj().symptoms; }, set(v) { dayObj().symptoms = v; }, enumerable: false, configurable: true });
+    return st;
+  }
+  let view = "care", camDirty = true, ev = null, active = [], sel = null, autoBanner = false, symOpen = null, radTimer = null, built = false;
   let rs = S.respond && S.respond.acked ? S.respond : E.newRespondState();
 
   const $ = (s, r) => (r || document).querySelector(s);
@@ -23,28 +30,27 @@
   const COND = Object.fromEntries(UJ.CONDITIONS.map((c) => [c.id, c]));
   const CHECKIN = UJ.CHANNELS.filter((c) => c.source === "checkin");
   const fmt = (v, d) => (v === null || v === undefined || v === "" || Number.isNaN(+v) ? "--" : (+v).toFixed(d));
-  const sgn = (v, d) => (v === null || v === undefined ? "--" : (v > 0 ? "▲+" : v < 0 ? "▼" : "±") + (+v).toFixed(d));
+  const sgn = (v, d) => { if (v === null || v === undefined || Number.isNaN(+v)) return "--"; const s = (+v).toFixed(d); return +s === 0 ? "±" + (0).toFixed(d) : (+s > 0 ? "▲+" : "▼") + s; }; // 반올림 후 0이면 "-0" 대신 ±0
   const stageHTML = (lvl, msg) => `<span class="pri">${PRI[lvl]}</span><span aria-hidden="true">${ICON[lvl]}</span><span>${LV[S.lang][lvl]}${msg ? " · " + esc(msg) : ""}</span>`;
 
   /* 합성 방사선 곡선 48 h (실데이터 아님) */
   const FLUX = Array.from({ length: 48 }, (_, t) => (t < 14 ? 0.2 : t <= 20 ? 0.2 * Math.pow(10, ((t - 14) / 6) * Math.log10(150 / 0.2)) : Math.max(0.2, 150 * Math.exp(-(t - 20) / 5))));
 
   /* ───────── 계산 ───────── */
-  function camToday() {
-    const c = S.camera, d = S.missionDay, out = {};
-    const day = (c.daily || []).filter((x) => x.day === d).pop();
-    if (day) { if (day.gate) { out.face = day.dFace; out.eye = day.dEye; } if (day.hr) out.hr = day.hr; if (day.resp) out.resp = day.resp; }
-    const sk = (c.skin || []).filter((x) => x.day === d && x.d !== null && x.d !== undefined).pop();
-    if (sk) out.skin = sk.d;
-    return out;
-  }
   function compute() {
-    ev = E.evaluate({ today: S.today, history: S.history, symptoms: S.symptoms, camera: camToday(), flux: FLUX[S.radT], events: { shelter: S.shelter } }, rules);
+    ev = E.evaluate({ days: S.days, day: S.missionDay, symptoms: S.symptoms, camera: CD.engineInput(S.camera, S.missionDay), flux: FLUX[S.radT], events: { shelter: S.shelter } }, rules);
     const u = E.updateRespond(rs, ev.cards, Date.now());
     rs = u.rs; S.respond = rs; active = u.active;
     if (u.autoSwitch) { view = "respond"; autoBanner = true; sel = u.fresh[0]; }
     if (!active.includes(sel)) sel = active[0] || null;
-    store.save(S);
+    store.save(S); renderBanner();
+  }
+  function renderBanner() {
+    const el = $("#storeBanner"), u = store.usage(), msgs = [];
+    if (!store.persistent()) msgs.push(T("브라우저 저장소를 쓸 수 없습니다 — 이 세션에서만 유지됩니다 (새로고침하면 사라짐).", "Browser storage unavailable — data is kept for this session only (lost on reload)."));
+    if (u.warn) msgs.push(T(`저장 용량 ${Math.round(u.frac * 100)}% 사용 — 오래된 부위 사진 정리를 권합니다 (자동 삭제하지 않음).`, `Storage ${Math.round(u.frac * 100)}% used — consider removing old site photos (nothing is deleted automatically).`));
+    el.textContent = msgs.join(" ");
+    el.classList.toggle("hide", !msgs.length);
   }
   function refresh() { compute(); render(); }
 
@@ -56,10 +62,11 @@
       b.classList.toggle("alert", b.dataset.view === "respond" && active.length > 0 && view !== "respond");
       b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false");
     });
-    for (const v of ["care", "respond", "camera", "evidence"]) $("#view-" + v).classList.toggle("hide", v !== view);
-    if (view === "care") { renderMonitor(); renderSymSum(); updateHints(); }
+    for (const v of ["care", "respond", "evidence"]) $("#view-" + v).classList.toggle("hide", v !== view);
+    if (view !== "care") UJ.cameraUI.leave();
+    renderDayNav();
+    if (view === "care") { renderMonitor(); renderCamGroup(); renderSymSum(); updateHints(); if (camDirty) { camDirty = false; UJ.cameraUI.render($("#camSection"), api); } }
     if (view === "respond") renderRespond();
-    if (view === "camera") UJ.cameraUI.render($("#view-camera"), api);
     if (view === "evidence" && !$("#view-evidence").dataset.lang) renderEvidence();
   }
   function tileName(k) {
@@ -81,16 +88,17 @@
     const b = $("#goResp"); if (b) b.onclick = () => { view = "respond"; autoBanner = false; render(); };
   }
   function renderStatic() {
+    UJ.cameraUI.leave(); camDirty = true; // 언어·초기화 시 카메라 영역도 다시 그림
     document.documentElement.lang = S.lang;
-    $("#meta").textContent = `CREW-${S.crew} · ${T("임무일", "MISSION DAY")} ${S.missionDay} (${T("모의", "sim")})`;
+    $("#meta").textContent = `CREW-${S.crew} · ${S.mode === "fresh" ? T("새로 시작", "fresh start") : T("데모", "demo")} (${T("모의", "sim")})`;
     $("#tags").innerHTML = [
-      ["warn", "SIMULATED DATA"], ["warn", "DEMO THRESHOLDS"], ["", T("기준선 = D1–D14 평균", "Baseline = mean D1–D14")],
+      ["warn", "SIMULATED DATA"], ["warn", "DEMO THRESHOLDS"], ["", T("기준선 = 기록 있는 처음 14일", "Baseline = first 14 recorded days")],
       ["", T("진단 도구 아님", "Not a diagnostic tool")], ["", T("NASA와 무관", "Not affiliated with NASA")],
     ].map(([c, t]) => `<span class="tag ${c}">${esc(t)}</span>`).join("");
-    const names = { care: T("모니터·점검", "Monitor & check-in"), respond: T("응급 Respond", "Respond"), camera: T("카메라", "Camera"), evidence: T("근거", "Evidence") };
+    const names = { care: T("모니터·점검·카메라", "Monitor, check-in & camera"), respond: T("응급 Respond", "Respond"), evidence: T("근거", "Evidence") };
     $$("#tabs button").forEach((b) => (b.textContent = names[b.dataset.view]));
-    $("#monnote").textContent = T("파형은 하루 1회 점검값의 30일 추세이며 실시간 측정이 아닙니다. 점선 = 내 기준선(D1–D14 평균), 가로 실선 = 데모 임계값. 방사선만 합성 48시간 재생입니다.",
-      "Traces are 30-day trends of once-daily check-in values, not real-time measurements. Dashed = personal baseline (mean D1–D14); solid horizontal = demo threshold. Only radiation is a synthetic 48-hour replay.");
+    $("#monnote").textContent = T("파형은 하루 1회 기록의 임무일별 추세이며 실시간 측정이 아닙니다. 기록 없는 날은 선을 끊습니다(보간 안 함). 점선 = 내 기준선(기록 있는 처음 14일), 가로 실선 = 데모 임계값. 방사선만 합성 48시간 재생입니다.",
+      "Traces are per-mission-day trends of once-daily records, not real-time measurements. Days without a record break the line (no interpolation). Dashed = personal baseline (first 14 recorded days); solid horizontal = demo threshold. Only radiation is a synthetic 48-hour replay.");
     $("#footer").innerHTML = esc(T("모든 승무원 데이터와 방사선 곡선은 합성(모의)입니다. 의사결정 보조용 프로토타입이며 진단·치료 도구가 아닙니다. NASA와 제휴하지 않았습니다. 서버 없음 — 사진·수치는 이 기기 안에만 저장되며 네트워크로 보내지 않습니다. AI 사용 공개: 코드·데이터 초안 작성에 Claude(Anthropic)를 사용했습니다.",
       "All crew data and the radiation curve are synthetic. Decision-support prototype, not a diagnostic or treatment tool. Not affiliated with NASA. No server — photos and numbers stay on this device and are never sent over the network. AI disclosure: Claude (Anthropic) was used to draft code and data."));
     $("#view-evidence").dataset.lang = "";
@@ -98,7 +106,7 @@
   }
 
   /* ───────── 모니터 ───────── */
-  const ROWS = ["hr", "temp", "sleep", "stress", "intake", "ex", "co2", "rad", "camFace", "camEye", "camSkin", "camHr", "camResp", "bp"];
+  const ROWS = ["hr", "temp", "sleep", "stress", "intake", "ex", "co2", "rad", "bp"];
   function buildMonitor() {
     $("#monitor").innerHTML = ROWS.map((id) => {
       const c = CH[id], color = c ? `var(${c.color})` : "var(--text)";
@@ -133,15 +141,15 @@
     let lo = Math.min(...ext), hi = Math.max(...ext);
     if (!isFinite(lo)) { lo = 0; hi = 1; }
     const span = hi - lo || Math.abs(hi) * 0.1 || 1; lo -= span * 0.12; hi += span * 0.12;
-    const n = series.length, x = (i) => 6 + (i / (n - 1)) * (W - 40), y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+    const n = series.length, x = (i) => (n > 1 ? 6 + (i / (n - 1)) * (W - 40) : (W - 40) / 2), y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
     let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.aria)}">`;
-    if (o.nBase) { const xb = x(o.nBase - 0.5); s += `<rect x="0" y="0" width="${xb}" height="${H - padB}" fill="#ffffff" fill-opacity=".03"/><line x1="${xb}" x2="${xb}" y1="0" y2="${H - padB}" stroke="var(--dim)" stroke-dasharray="1 3"/><text x="4" y="9" font-size="9" fill="var(--dim)" font-family="monospace">${T("기준선 구간 D1–D14", "baseline window D1–D14")}</text>`; }
+    if (o.nBase) { const xb = x(o.nBase - 0.5); s += `<rect x="0" y="0" width="${xb}" height="${H - padB}" fill="#ffffff" fill-opacity=".03"/><line x1="${xb}" x2="${xb}" y1="0" y2="${H - padB}" stroke="var(--dim)" stroke-dasharray="1 3"/><text x="4" y="9" font-size="9" fill="var(--dim)" font-family="monospace">${T("기준선 구간", "baseline window")} ${esc(o.baseLabel || "")}</text>`; }
     for (const l of o.lines || []) s += `<line x1="0" x2="${W - 34}" y1="${y(l.value)}" y2="${y(l.value)}" stroke="var(--thr)" stroke-width="1"/><text x="${W - 32}" y="${y(l.value) + 3}" font-size="9.5" fill="var(--thr)" font-family="monospace">${esc(l.label)}</text>`;
     if (o.base !== null && o.base !== undefined) s += `<line x1="0" x2="${W - 34}" y1="${y(o.base)}" y2="${y(o.base)}" stroke="${o.color}" stroke-opacity=".55" stroke-dasharray="5 4"/><text x="${W - 32}" y="${y(o.base) + 3}" font-size="9.5" fill="${o.color}" fill-opacity=".8" font-family="monospace">BASE</text>`;
     let seg = [], segs = [];
     series.forEach((v, i) => { if (v === null || v === undefined || v === "" || Number.isNaN(+v)) { if (seg.length) segs.push(seg); seg = []; } else seg.push(`${x(i).toFixed(1)},${y(+v).toFixed(1)}`); });
     if (seg.length) segs.push(seg);
-    for (const sg of segs) s += sg.length > 1 ? `<polyline points="${sg.join(" ")}" fill="none" stroke="${o.color}" stroke-width="2" stroke-linejoin="round"/>` : "";
+    for (const sg of segs) s += sg.length > 1 ? `<polyline points="${sg.join(" ")}" fill="none" stroke="${o.color}" stroke-width="2" stroke-linejoin="round"/>` : `<circle cx="${sg[0].split(",")[0]}" cy="${sg[0].split(",")[1]}" r="2.2" fill="${o.color}"/>`; // 앞뒤가 결측인 단독 기록은 점으로
     const last = series[n - 1];
     if (last !== null && last !== undefined && last !== "" && !Number.isNaN(+last)) s += `<circle cx="${x(n - 1)}" cy="${y(+last)}" r="4" fill="${o.color}" stroke="var(--bg)" stroke-width="2"/>`;
     if (o.cursor !== undefined) s += `<line x1="${x(o.cursor)}" x2="${x(o.cursor)}" y1="0" y2="${H - padB}" stroke="var(--text)" stroke-width="1"/>`;
@@ -166,7 +174,7 @@
     const t = ev.tiles[tileId];
     const rs0 = t ? t.top : rules.find((r) => r.tile === tileId && !r.generic);
     if (!rs0) return "";
-    return `${T("근거", "Evidence")} ${rs0.evidenceLevel} · ${T("데모 임계값", "demo threshold")} · ${rs0.sources.map((s) => s).join(", ")}${rs0.note ? " · " + rs0.note : ""}`;
+    return `${T("근거", "Evidence")} ${rs0.evidenceLevel} · ${T("데모 임계값", "demo threshold")} · ${rs0.sources.map((s) => s).join(", ")}${rs0.note ? " · " + T(rs0.note, rs0.noteEn || "threshold source [unverified]") : ""}`;
   }
   function stageBlock(tileId, msgFn) {
     const t = ev.tiles[tileId], lvl = t ? t.level : 0;
@@ -175,21 +183,23 @@
 
   function renderMonitor() {
     if (!$("#row-hr")) buildMonitor();
-    const N = S.history.length + 1;
-    const xl = [[0, "D1"], [13, "D14"], [N - 1, T("오늘 D", "today D") + S.missionDay]];
+    const D = S.missionDay;
     for (const c of CHECKIN) {
       const row = $("#row-" + c.id), d = ev.deltas[c.id] || {}, color = `var(${c.color})`;
-      const series = S.history.map((h) => h[c.id]).concat([S.today[c.id]]);
+      const series = TL.series(S.days, D, c.id);
       const lines = E.thresholdLines(rules, c.id, d.base);
-      row.querySelector("[data-svg]").innerHTML = trendSVG(series, { base: d.base, lines, color, nBase: 14, xLabels: xl, aria: `${c.en} 30-day trend` });
+      const xl = [[0, "D1"]].concat(d.baseEnd && d.baseEnd > 1 && d.baseEnd < D - 2 ? [[d.baseEnd - 1, "D" + d.baseEnd]] : [], D > 1 ? [[D - 1, T("오늘 D", "today D") + D]] : []);
+      row.querySelector("[data-svg]").innerHTML = trendSVG(series, { base: d.base, lines, color, nBase: d.baseEnd || 0, baseLabel: d.baseEnd ? "→D" + d.baseEnd : "", xLabels: xl, aria: `${c.en} trend by mission day` });
       row.querySelector("[data-src]").textContent = srcLine(c.id);
       const baseTxt = d.base === null ? `${T("기준선 수집 중", "baseline")} ${d.n}/14` : `BASE ${fmt(d.base, c.dec)}`;
       const lim = lines.map((l) => l.label).join(" / ");
+      const yTxt = d.yesterday !== null ? `${T("어제", "YEST")} ${fmt(d.yesterday, c.dec)}` : `${T("어제 기록 없음", "no record yesterday")}${d.last ? ` · ${T("마지막", "last")} D${d.last.day} ${fmt(d.last.value, c.dec)}` : ""}`;
+      const dLastTxt = d.dYest === null && d.dLast !== null ? `<span title="${T("어제 대신 마지막 기록 대비", "vs last record instead of yesterday")}">Δ D${d.last.day} (${d.last.ago}${T("일 전", "d ago")}) <b>${sgn(d.dLast, c.dec)}</b></span>` : "";
       row.querySelector("[data-num]").innerHTML = `
         <span class="name" style="color:${color}">${esc(c.id.toUpperCase())} ${esc(c.unit)}</span>
-        <span class="lim">${baseTxt}<br>${T("어제", "YEST")} ${fmt(d.yesterday, c.dec)}<br>${lim ? "LIM " + esc(lim) : ""}</span>
-        <span class="val" style="color:${color}">${fmt(d.today, c.dec)}</span>
-        <span class="delta"><span>Δ${T("어제", "yest")} <b>${sgn(d.dYest, c.dec)}</b></span><span>Δ${T("기준선", "base")} <b>${sgn(d.dBase, c.dec)}</b></span></span>
+        <span class="lim">${baseTxt}<br>${yTxt}<br>${lim ? "LIM " + esc(lim) : ""}</span>
+        <span class="val" style="color:${color}">${d.today === null ? `<small class="dim" style="font-size:14px">${T("미입력", "not entered")}</small>` : fmt(d.today, c.dec)}</span>
+        <span class="delta"><span>Δ${T("어제", "yest")} <b>${sgn(d.dYest, c.dec)}</b></span><span>Δ${T("기준선", "base")} <b>${sgn(d.dBase, c.dec)}</b></span>${dLastTxt}</span>
         ${stageBlock(c.id, () => (d.dBase !== null ? `${T("기준선", "baseline")} ${sgn(d.dBase, c.dec)} ${c.unit}` : `${fmt(d.today, c.dec)} ${c.unit}`))}`;
     }
     // 방사선
@@ -202,47 +212,82 @@
     rr.querySelector("[data-num]").innerHTML = `<span class="name" style="color:var(--c-rad)">RAD pfu · ${T("합성", "synthetic")}</span>
       <span class="lim">ACT ≥10<br>EMG ${T("대피 지시", "shelter order")}</span><span class="val" style="color:var(--c-rad)">${fmt(FLUX[S.radT], FLUX[S.radT] < 10 ? 1 : 0)}</span>
       ${stageBlock("rad", () => (S.shelter ? T("대피 지시 수신 (모의)", "Shelter instruction (simulated)") : T("≥10 pfu 이벤트 진행 중 (합성)", "≥10 pfu event in progress (synthetic)")))}`;
-    renderCamRows();
     // 혈압·SpO₂
     const br = $("#row-bp"), t = S.today;
     br.querySelector("[data-svg]").innerHTML = `<div class="empty">${T("선택 입력 — 장비 존재 [미확인]. 추세 없음.", "Optional input — device availability [unverified]. No trend.")}</div>`;
     br.querySelector("[data-src]").textContent = srcLine("bp");
     br.querySelector("[data-num]").innerHTML = `<span class="name">BP mmHg · SpO₂ %</span><span class="lim">${T("기록", "log")}<br>SpO₂ ${T("규칙 없음", "no rule")}</span>
-      <span class="val" style="font-size:26px">${t.bpSys !== "" && t.bpSys !== undefined ? fmt(t.bpSys, 0) + "/" + fmt(t.bpDia, 0) : "--"}<small>${t.spo2 !== "" && t.spo2 !== undefined ? " " + fmt(t.spo2, 0) + "%" : ""}</small></span>
+      <span class="val" style="font-size:26px">${t.bpSys !== "" && t.bpSys !== undefined && t.bpSys !== null ? fmt(t.bpSys, 0) + "/" + fmt(t.bpDia, 0) : "--"}<small>${t.spo2 !== "" && t.spo2 !== undefined && t.spo2 !== null ? " " + fmt(t.spo2, 0) + "%" : ""}</small></span>
       ${stageBlock("bp", () => T("데모 임계값 140/90 [출처 미확인]", "demo 140/90 [source unverified]"))}`;
   }
 
-  function renderCamRows() {
-    const c = S.camera, daily = c.daily || [], today = camToday();
-    const camLines = [{ value: UJ.camcore.GATE.redWatch, label: "+" + UJ.camcore.GATE.redWatch }];
-    const camRow = (id, series, val, msg) => {
-      const row = $("#row-" + id);
-      const pts = series.filter((v) => v !== null && v !== undefined);
-      row.querySelector("[data-svg]").innerHTML = pts.length >= 2
-        ? trendSVG(series, { base: 0, lines: camLines, color: "var(--c-cam)", xLabels: [[0, T("첫 기록", "first")], [series.length - 1, T("최근", "latest")]], aria: id })
-        : `<div class="empty">${pts.length ? T("기록 1회 — 추세는 2회부터", "1 record — trend needs 2") : T("카메라 기록 없음 — 측정하지 않은 파형은 그리지 않습니다", "No camera record — no trace is drawn without a measurement")}</div>`;
-      row.querySelector("[data-src]").textContent = T("보조 신호 · 감지 근거 D0 · 단독 최대 주의", "aux signal · detection D0 · max Watch alone");
-      row.querySelector("[data-num]").innerHTML = `<span class="name" style="color:var(--c-cam)">${esc(id.toUpperCase())} ${esc(CH[id].unit)}</span>
-        <span class="lim">${T("기준 대비", "vs reference")}<br>WATCH +${UJ.camcore.GATE.redWatch}</span>
-        <span class="val" style="color:var(--c-cam)">${val === null || val === undefined ? "--" : sgn(val, 1).replace("▲", "").replace("▼", "")}</span>
-        ${stageBlock(id, () => T("기준 대비 붉기 변화 있음, 확인 필요", "Redness changed vs reference — check"))}
-        ${msg ? `<span class="act dim">${esc(msg)}</span>` : ""}`;
-    };
-    camRow("camFace", daily.filter((x) => x.gate).map((x) => x.dFace), today.face, c.baseline ? "" : T("기준 사진 없음 → 카메라 탭", "No reference photo → Camera tab"));
-    camRow("camEye", daily.filter((x) => x.gate).map((x) => x.dEye), today.eye, "");
-    camRow("camSkin", (c.skin || []).map((x) => x.d), today.skin, T("부위 촬영의 첫 사진 대비", "vs first photo of that site"));
-    const hrDay = daily.filter((x) => x.hrStatus).pop();
-    for (const [id, key, label] of [["camHr", "hr", T("보조 참고값, 정확도 미검증", "aux reference, accuracy unverified")], ["camResp", "resp", T("기록만 — 규칙에 연결하지 않음", "log only — not linked to any rule")]]) {
-      const row = $("#row-" + id), v = today[key];
-      row.querySelector("[data-svg]").innerHTML = `<div class="empty">${T("30초 측정값만 표시 (원신호·영상 저장 안 함)", "Shows 30-s measurement result only (no raw signal or video stored)")}</div>`;
-      row.querySelector("[data-src]").textContent = id === "camHr" ? T("감지 D1 · 35명·정지·실험실 연구 1개", "detection D1 · single lab study, n=35, at rest") : T("감지 D1 · 정지·근거리에서만 양호", "detection D1 · good only at rest, close range");
-      const mismatch = id === "camHr" && ev.notes.find((n) => n.id === "camHrMismatch");
-      const unavailable = hrDay && hrDay.day === S.missionDay && hrDay.hrStatus !== "ok";
-      row.querySelector("[data-num]").innerHTML = `<span class="name" style="color:var(--c-cam)">${esc(id.toUpperCase())} ${esc(CH[id].unit)}</span>
-        <span class="lim">${esc(label)}</span><span class="val" style="color:var(--c-cam)">${v ? fmt(v, 0) : "--"}</span>
-        <div class="stage s0">${v ? "○ " + T("참고", "reference") : unavailable ? "✕ " + T("측정 불가 · 품질 게이트 미통과", "Unavailable · quality gate failed") : "— " + T("측정 안 함", "not measured")}</div>
-        ${mismatch ? `<div class="act" style="color:var(--s1)">⚠ ${T("측정 불일치", "Mismatch")}: ${T("수동 심박과", "vs manual HR")} ${sgn(mismatch.diff, 0)} bpm</div>` : ""}`;
+  /* ───────── 카메라 그룹 (ROI별 행, 접기/펴기) ───────── */
+  const CAM_KEYS = [["face", "camFace"], ["forehead", "camForehead"], ["cheekL", "camCheekL"], ["cheekR", "camCheekR"], ["eye", "camEye"], ["lips", "camLips"]];
+  const REASON = {
+    tooDark: ["조명이 어둡습니다", "too dark"], tooBright: ["조명이 밝습니다", "too bright"], tooFewRois: ["유효 얼굴 영역 2개 미만", "fewer than 2 valid face regions"],
+    whiteBalance: ["화이트밸런스/조명 변화", "white balance / lighting shift"], position: ["기준 사진과 위치가 다름", "position differs from reference"], flicker: ["프레임 간 밝기 변동", "brightness varies across frames"],
+    lighting: ["조명 다름", "lighting differs"], spec: ["반사", "glare"], dark: ["어두움", "dark"], occluded: ["가림", "occluded"], invalid: ["무효", "invalid"],
+    noBgRef: ["조명 참조 없음", "no lighting reference"], sideLight: ["한쪽 조명", "one-sided light"], partial: ["일부 영역 제외", "some regions excluded"],
+    frameDrop: ["프레임 누락", "frame drop"], lowSnr: ["신호 약함", "weak signal"], noSignal: ["신호 없음", "no signal"], lightingVaries: ["조명 변동", "lighting varies"], motion: ["움직임", "motion"],
+    bandEdge: ["대역 가장자리", "band edge"], harmonic: ["하모닉 모호", "ambiguous harmonic"], tooFewFrames: ["프레임 부족", "too few frames"], noRect: ["영역 미지정", "no region set"],
+  };
+  const reasonTxt = (r) => (REASON[r] ? T(REASON[r][0], REASON[r][1]) : r);
+  let camOpen = true;
+  function camKeys() {
+    return CAM_KEYS.concat(Object.keys(S.camera.sites || {}).map((id) => ["site:" + id, "camSkin"]), [["hr", "camHr"], ["resp", "camResp"]]);
+  }
+  function camLabel(key, tile) {
+    if (key.startsWith("site:")) { const st = S.camera.sites[key.slice(5)] || {}; return `${T("부위", "Site")} ${st.label || key.slice(5)}`; }
+    return L(CH[tile]);
+  }
+  function renderCamGroup() {
+    const box = $("#camgroup"), cam = S.camera, D = S.missionDay;
+    const any = (cam.records || []).some((r) => r.day <= D);
+    if (!any) {
+      box.innerHTML = `<div class="camfold"><span>${!cam.consent ? T("카메라 미사용 — 동의하면 오른쪽에서 촬영할 수 있습니다", "Camera not used — consent on the right to capture") : T("카메라 미측정 — 촬영하기", "Camera not measured — capture")}</span>${cam.consent ? `<button id="goCam2">${T("촬영하기", "Capture")}</button>` : ""}</div>`;
+      const b = $("#goCam2"); if (b) b.onclick = goCamera;
+      return;
     }
+    const synth = (cam.records || []).some((r) => r.day <= D && r.synthetic);
+    const rows = camKeys().map(([key, tile]) => camRowHTML(key, tile, D)).join("");
+    box.innerHTML = `<details class="camgrp" ${camOpen ? "open" : ""}><summary><b>${T("카메라 (보조 신호 · 감지 근거 D0)", "Camera (auxiliary signal · detection evidence D0)")}</b>
+        <span class="dim">${T("ROI별 a* 변화 · 단독 최대 주의 · 카드 생성 안 함 · 피부색별 검증 안 됨", "a* change per region · Watch max alone · never creates cards · not validated across skin tones")}${synth ? " · " + T("합성 기록 포함 — 합성과 실제 촬영은 섞어 비교하지 않음", "includes synthetic records — synthetic and real captures are never compared with each other") : ""}</span></summary>
+      <div class="monitor">${rows}</div></details>`;
+    box.querySelector("details").ontoggle = (e) => (camOpen = e.target.open);
+  }
+  function camRowHTML(key, tile, D) {
+    const cam = S.camera, d = CD.deltas(cam, D, key), series = CD.series(cam, D, key);
+    const isHr = key === "hr" || key === "resp", dec = isHr ? 0 : 1, unit = isHr ? CH[tile].unit : "a*";
+    const color = "var(--c-cam)";
+    const pts = series.filter((v) => v !== null).length;
+    const t = ev.tiles[tile], lvl = key === "resp" ? 0 : t && !key.startsWith("site:") ? t.level : key.startsWith("site:") && t && d.dBase !== null && d.dBase >= UJ.camcore.GATE.redWatch ? t.level : 0;
+    const lines = isHr ? [] : d.base !== null ? [{ value: d.base + UJ.camcore.GATE.redWatch, label: "+" + UJ.camcore.GATE.redWatch }] : [];
+    const svg = pts >= 2 ? trendSVG(series, { base: d.base, lines, color, xLabels: [[0, "D1"], [D - 1, T("오늘 D", "today D") + D]], aria: key + " trend" })
+      : `<div class="empty">${pts ? T("유효 기록 1회 — 추세는 2회부터", "1 valid record — trend needs 2") : T("유효 기록 없음 — 측정하지 않은 파형은 그리지 않습니다", "No valid record — no trace without a measurement")}</div>`;
+    const st = [];
+    if (d.synthetic) st.push(`<span class="tag warn">${T("합성", "synthetic")}</span>`);
+    if (d.todayStatus === "none") st.push(T("오늘 미측정", "not measured today"));
+    if (d.todayStatus === "failed") st.push(`<span class="bad">${T("품질 미달", "quality gate failed")}: ${esc(d.reasons.map(reasonTxt).join(", "))}</span>`);
+    if (d.todayStatus === "lowconf") st.push(`<span class="bad">${T("조명 참조 없음/낮은 신뢰 — 표시만, 규칙·추세 제외", "no lighting reference / low confidence — display only, excluded from rules and trend")}</span>`);
+    if (d.lastValid) st.push(`<span class="dim">D${d.lastValid.day} ${T("마지막 유효", "last valid")} ${fmt(d.lastValid.value, dec)}</span>`);
+    if (!key.startsWith("site:") && !isHr) st.push(d.locked ? T("기준 확정", "baseline locked") : `${T("기준 형성 중", "baseline forming")} ${d.n}/14${d.n < 3 ? " · " + T("규칙은 3일부터", "rules from day 3") : ""}`);
+    if (key.startsWith("site:")) st.push(d.base !== null ? T("첫 사진 = 기준", "first photo = reference") : "");
+    if (d.todayStatus === "ok" && d.yStatus === "failed") st.push(T("어제 품질 미달", "yesterday failed quality gate"));
+    if (d.sourceMismatch) st.push(`<span class="bad">⚠ ${T("어제와 출처 다름(파일/웹캠) — 참고만", "source differs from yesterday (file/webcam) — reference only")}</span>`);
+    if (d.partial) st.push(`${T("일부 ROI 제외", "some regions excluded")}: ${esc(d.excluded.map(([k, r]) => `${k}(${reasonTxt(r)})`).join(", "))}`);
+    if (key === "lips") st.push(T("기록·표시만, 판정 없음", "log/display only, no judgement"));
+    if (key === "resp") st.push(T("기록만 — 규칙 없음", "log only — no rule"));
+    if (key === "hr") { const mm = ev.notes.find((n) => n.id === "camHrMismatch"); if (mm) st.push(`<span style="color:var(--s1)">⚠ ${T("수동 심박과 불일치", "mismatch vs manual HR")} ${sgn(mm.diff, 0)} bpm</span>`); }
+    const yTxt = d.yesterday !== null ? `${T("어제", "YEST")} ${fmt(d.yesterday, dec)}` : `${d.yStatus === "failed" ? T("어제 품질 미달", "yesterday failed") : T("어제 기록 없음", "no record yesterday")}${d.last ? ` · ${T("마지막", "last")} D${d.last.day}` : ""}`;
+    const dLastTxt = d.dYest === null && d.dLast !== null && d.n >= 2 ? `<span>Δ D${d.last.day} (${d.last.ago}${T("일 전", "d ago")}) <b>${sgn(d.dLast, dec)}</b></span>` : "";
+    const showD = isHr || d.n >= 2 || key.startsWith("site:");
+    return `<div class="vrow camrow" id="row-cam-${esc(key.replace(":", "-"))}" data-camkey="${esc(key)}"><div class="wave"><div class="lbl" style="color:${color}"><span>${esc(key.toUpperCase())} · ${esc(camLabel(key, tile))}</span><span class="src">${isHr ? (key === "hr" ? T("감지 D1 · 35명·정지·실험실 연구 1개", "detection D1 · one lab study, n=35, at rest") : T("감지 D1 · 기록만", "detection D1 · log only")) : T("감지 D0 · 데모 임계 +3", "detection D0 · demo threshold +3")}</span></div>${svg}</div>
+      <div class="num"><span class="name" style="color:${color}">${esc(key.toUpperCase())} ${esc(unit)}</span>
+        <span class="lim">${d.base !== null ? "BASE " + fmt(d.base, dec) : T("기준 없음", "no baseline")}<br>${yTxt}</span>
+        <span class="val" style="color:${color};font-size:30px">${d.today === null ? "--" : fmt(d.today, dec)}</span>
+        <span class="delta">${showD ? `<span>Δ${T("어제", "yest")} <b>${sgn(d.dYest, dec)}</b></span><span>Δ${T("기준선", "base")} <b>${sgn(d.dBase, dec)}</b></span>${dLastTxt}` : `<span class="dim">${T("Δ 숨김 (기록 1회)", "Δ hidden (1 record)")}</span>`}</span>
+        <div class="stage s${lvl}">${stageHTML(lvl, lvl ? T("기준 대비 붉기 변화 있음, 확인 필요", "Redness changed vs baseline — check") : "")}</div>
+        <span class="camst">${st.filter(Boolean).join(" · ")}</span></div></div>`;
   }
 
   /* ───────── 증상 요약 ───────── */
@@ -267,12 +312,14 @@
   function buildCheckin() {
     const box = $("#checkin");
     const field = (c) => `<div class="frow"><label for="in-${c.id}"><span class="chip" style="background:var(${c.color || "--muted"})"></span>${esc(L(c))} <span class="dim">(${esc(c.unit)})</span><span class="hint" data-hint="${c.id}"></span></label>
-      <input type="number" id="in-${c.id}" data-ch="${c.id}" min="${c.min}" max="${c.max}" step="${c.step}" value="${esc(S.today[c.id])}" inputmode="decimal"></div>`;
+      <input type="number" id="in-${c.id}" data-ch="${c.id}" min="${c.min}" max="${c.max}" step="${c.step}" value="${S.today[c.id] === null || S.today[c.id] === undefined ? "" : esc(S.today[c.id])}" placeholder="${T("미입력", "—")}" inputmode="decimal"></div>`;
+    $("#checkinTop").innerHTML = `<div class="panel ckin"><h2>① ${T("직접 점검 — 수치 입력", "Check-in — numbers")} <span class="dim">(${T("승무원", "crew")} ${S.crew} · D${S.missionDay}${S.missionDay < S.curDay ? " · " + T("과거 기록 수정 중", "editing a past day") : ""} · ${T("빈칸 = 미입력", "blank = not entered")})</span></h2>
+        <div class="ckgrid">${CHECKIN.map(field).join("")}</div>
+        <details style="margin-top:6px"><summary class="muted">${T("선택 입력: 혈압·SpO₂ (장비 존재 [미확인])", "Optional: BP · SpO₂ (device availability [unverified])")}</summary><div class="ckgrid">${UJ.OPTIONAL_INPUTS.map(field).join("")}</div></details>
+        <p class="dim" style="font-size:11.5px;margin:6px 0 0" id="rangeMsg"></p></div>`;
+    $("#checkinTop").oninput = onCheckinInput;
+    $("#checkinTop").onchange = onCheckinInput;
     box.innerHTML = `
-      <div class="panel"><h2>① ${T("수치 입력", "Numbers")} <span class="dim">(${T("승무원", "crew")} ${S.crew}, ${T("모의", "sim")})</span></h2>
-        ${CHECKIN.map(field).join("")}
-        <details style="margin-top:6px"><summary class="muted">${T("선택 입력: 혈압·SpO₂ (장비 존재 [미확인])", "Optional: BP · SpO₂ (device availability [unverified])")}</summary>${UJ.OPTIONAL_INPUTS.map(field).join("")}</details>
-        <p class="dim" style="font-size:11.5px;margin:6px 0 0" id="rangeMsg"></p></div>
       <div class="panel"><h2>② ${T("증상 점검", "Symptom check")}</h2>
         <div class="btns"><button id="noSym" class="primary">${T("오늘 이상 없음", "Nothing unusual today")}</button></div>
         <p class="dim" style="font-size:11.5px;margin:6px 0">${T("⚑ = 빨간 깃발 증상. 진단명을 보여 주지 않고 관련 위험군·단계·조치만 보여 줍니다.", "⚑ = red-flag symptom. Shows risk groups, level and action — never a diagnosis.")}</p>
@@ -282,16 +329,16 @@
             <div class="fu ${S.symptoms[s.id] ? "" : "hide"}" data-fu="${s.id}"><label>${T("강도", "Severity")} <select data-sev="${s.id}"><option value="">-</option>${Array.from({ length: 11 }, (_, i) => `<option ${S.symptoms[s.id] && String(S.symptoms[s.id].sev) === String(i) ? "selected" : ""}>${i}</option>`).join("")}</select></label>
             <label>${T("시작", "Onset")} <input type="time" data-onset="${s.id}" value="${esc(S.symptoms[s.id] && S.symptoms[s.id].onset || "")}"></label></div></div>`).join("")}
         </div></details>`).join("")}</div>
-      <div class="panel"><h2>③ ${T("카메라 점검 (선택)", "Camera check (optional)")}</h2><p class="muted" id="camStatus" style="margin:0 0 6px"></p><button id="goCam">${T("카메라 탭으로", "Open Camera tab")}</button></div>
+      <div class="panel"><h2>③ ${T("카메라 점검 (선택)", "Camera check (optional)")}</h2><button id="goCam">${T("카메라로 이동", "Go to camera")}</button></div>
       <div class="panel"><h2>${T("시연 시나리오 (합성)", "Demo scenarios (synthetic)")}</h2><div class="btns presets">${PRESETS.map((p, i) => `<button data-preset="${i}">${esc(L(p))}</button>`).join("")}</div></div>
       <div class="panel"><div class="btns"><button id="resetToday">${T("오늘 입력 초기화", "Reset today")}</button><button id="resetAll" class="danger">${T("전체 초기화", "Reset everything")}</button></div></div>`;
     box.oninput = onCheckinInput;   // 재생성 시 리스너 중복 방지(속성 할당)
     box.onchange = onCheckinInput;
     $("#noSym").onclick = () => { S.symptoms = {}; $$("[data-sym]").forEach((x) => (x.checked = false)); $$("[data-fu]").forEach((x) => x.classList.add("hide")); refresh(); };
-    $("#goCam").onclick = () => { view = "camera"; render(); };
+    $("#goCam").onclick = goCamera;
     box.querySelector(".presets").addEventListener("click", (e) => { const b = e.target.closest("[data-preset]"); if (b) applyPreset(+b.dataset.preset); });
-    $("#resetToday").onclick = () => { S.today = store.defaultToday(); S.symptoms = {}; S.shelter = false; S.radT = 0; rs = E.newRespondState(); S.done = {}; stopRad(); buildCheckin(); refresh(); };
-    $("#resetAll").onclick = () => { if (!confirm(T("모든 저장 데이터(사진 포함)를 지웁니다. 계속할까요?", "Delete all stored data including photos?"))) return; store.photos.clear(); const lang = S.lang; S = store.reset(); S.lang = lang; rs = E.newRespondState(); stopRad(); renderStatic(); refresh(); };
+    $("#resetToday").onclick = () => { S.today = store.emptyCheckin(); S.symptoms = {}; S.shelter = false; S.radT = 0; rs = E.newRespondState(); S.done = {}; stopRad(); buildCheckin(); refresh(); };
+    $("#resetAll").onclick = () => setMode(S.mode || "demo");
   }
   function onCheckinInput(e) {
     const t = e.target;
@@ -301,7 +348,7 @@
       const bad = v !== "" && (v < c.min || v > c.max);
       t.setAttribute("aria-invalid", bad ? "true" : "false");
       $("#rangeMsg").textContent = bad ? `${L(c)}: ${T("허용 범위", "allowed range")} ${c.min}–${c.max} ${c.unit}. ${T("범위 밖 값은 미입력으로 처리합니다.", "Out-of-range values are treated as missing.")}` : "";
-      S.today[c.id] = bad ? "" : v;
+      S.today[c.id] = bad || v === "" ? null : v;
     } else if (t.dataset.sym) {
       if (t.checked) S.symptoms[t.dataset.sym] = S.symptoms[t.dataset.sym] || {}; else delete S.symptoms[t.dataset.sym];
       $(`[data-fu="${t.dataset.sym}"]`).classList.toggle("hide", !t.checked);
@@ -315,39 +362,64 @@
   function updateHints() {
     for (const c of CHECKIN) {
       const d = ev.deltas[c.id] || {}, h = $(`[data-hint="${c.id}"]`);
-      if (h) h.textContent = `${T("어제", "yest")} ${fmt(d.yesterday, c.dec)} · ${d.base === null ? T("기준선 수집 중", "baseline") + " " + d.n + "/14" : T("내 평균", "my baseline") + " " + fmt(d.base, c.dec)}`;
+      if (h) h.textContent = `${d.yesterday !== null ? T("어제", "yest") + " " + fmt(d.yesterday, c.dec) : T("어제 기록 없음", "no record yesterday")} · ${d.base === null ? T("기준선 수집 중", "baseline") + " " + d.n + "/14" : T("내 평균", "my baseline") + " " + fmt(d.base, c.dec)}`;
     }
     for (const m of UJ.MODULES) { const n = UJ.SYMPTOMS.filter((s) => s.module === m.id && S.symptoms[s.id]).length; const el = $(`[data-modcount="${m.id}"]`); if (el) el.textContent = n ? n + " ✓" : ""; }
-    const cs = $("#camStatus"); if (cs) {
-      const t = camToday();
-      cs.textContent = !S.camera.baseline ? T("기준 사진 없음 — 첫 촬영이 기준이 됩니다.", "No reference photo — the first capture becomes the reference.")
-        : t.face !== undefined ? `${T("오늘 측정됨", "Measured today")}: Δa* ${T("얼굴", "face")} ${fmt(t.face, 1)}, ${T("눈 주변", "eye")} ${fmt(t.eye, 1)}` : T("오늘 아직 촬영하지 않음", "Not captured today");
-    }
   }
 
   /* 시연 시나리오 (합성) */
-  const P = (ko, en, today, sym, extra) => ({ ko, en, today: today || {}, sym: sym || [], extra: extra || {} });
+  // cam = 그날 합성 카메라 기록(기준선 중앙값 대비 Δa*, 심박). 정상은 ≈0, 발열은 +1.5로 일부러 임계값 아래 [설계 선택]
+  const P = (ko, en, today, sym, extra, cam) => ({ ko, en, today: today || {}, sym: sym || [], extra: extra || {}, cam: cam || { face: 0 } });
+  const OPT = { bpSys: 118, bpDia: 76, spo2: 98 };
   const PRESETS = [
-    P("정상", "Normal day"),
-    P("수면 부족 + 스트레스", "Poor sleep + stress", { sleep: 4.5, stress: 4, hr: 70 }),
-    P("발열 + 심박 상승", "Fever + raised HR", { temp: 38.2, hr: 78 }, ["feverChills", "cough"]),
-    P("R2 감염 악화", "R2 Infection worsening", { temp: 38.6, hr: 90, ex: 20, intake: 60 }, ["confusion", "feverChills"]),
-    P("R5 흉통 + 심박", "R5 Chest pain + HR", { hr: 86 }, ["chestPain", "coldSweat"]),
-    P("R4 알레르기 조합", "R4 Allergy combination", {}, ["hives", "faceSwelling", "throatTight"]),
-    P("CO₂ 상승 + 두통", "CO₂ rise + headache", { co2: 5.6 }, ["headache"]),
-    P("방사선 이벤트 (22 h)", "Radiation event (22 h)", {}, [], { radT: 22 }),
-    P("R1 대피 지시", "R1 Shelter instruction", {}, [], { radT: 22, shelter: true }),
-    P("R3 눈 화학물질", "R3 Chemical in eye", {}, ["eyeChem", "eyePain"]),
-    P("R6 뇌졸중 의심", "R6 Suspected stroke", {}, ["faceDroop", "slurred"]),
+    P("정상", "Normal day", {}, [], {}, { face: 0, hr: 63 }),
+    P("수면 부족 + 스트레스", "Poor sleep + stress", { sleep: 4.5, stress: 4, hr: 70 }, [], {}, { face: 0, hr: 70 }),
+    P("발열 + 심박 상승", "Fever + raised HR", { temp: 38.2, hr: 78 }, ["feverChills", "cough"], {}, { face: 1.5, hr: 79 }),
+    P("R2 감염 악화", "R2 Infection worsening", { temp: 38.6, hr: 90, ex: 20, intake: 60 }, ["confusion", "feverChills"], {}, { face: 1.2, hr: 91 }),
+    P("R5 흉통 + 심박", "R5 Chest pain + HR", { hr: 86 }, ["chestPain", "coldSweat"], {}, { face: 0, hr: 87 }),
+    P("R4 알레르기 조합", "R4 Allergy combination", {}, ["hives", "faceSwelling", "throatTight"], {}, { face: 3.6, hr: 66 }),
+    P("CO₂ 상승 + 두통", "CO₂ rise + headache", { co2: 5.6 }, ["headache"], {}, { face: 0, hr: 64 }),
+    P("방사선 이벤트 (22 h)", "Radiation event (22 h)", {}, [], { radT: 22 }, { face: 0, hr: 63 }),
+    P("R1 대피 지시", "R1 Shelter instruction", {}, [], { radT: 22, shelter: true }, { face: 0, hr: 64 }),
+    P("R3 눈 화학물질", "R3 Chemical in eye", {}, ["eyeChem", "eyePain"], {}, { eye: 4.2, hr: 65 }),
+    P("R6 뇌졸중 의심", "R6 Suspected stroke", {}, ["faceDroop", "slurred"], {}, { face: 0, hr: 66 }),
   ];
   function applyPreset(i) {
     const p = PRESETS[i];
     stopRad();
-    S.today = Object.assign(store.defaultToday(), p.today);
+    S.today = Object.assign(store.defaultCheckin(), OPT, p.today);
+    dayObj().synthetic = true;
     S.symptoms = Object.fromEntries(p.sym.map((s) => [s, {}]));
     S.radT = p.extra.radT || 0; S.shelter = !!p.extra.shelter;
-    rs = E.newRespondState(); S.done = {}; autoBanner = false; view = "care";
+    CD.setSynthetic(S.camera, S.missionDay, p.cam);
+    rs = E.newRespondState(); S.done = {}; autoBanner = false; view = "care"; camDirty = true;
     buildCheckin(); refresh();
+  }
+
+  /* ───────── 임무일 이동 · 하루 마감 · 모드 ───────── */
+  function renderDayNav() {
+    const D = S.missionDay;
+    $("#daynav").innerHTML = `<button id="dPrev" ${D <= 1 ? "disabled" : ""} aria-label="${T("이전 임무일", "previous mission day")}">◀</button>
+      <span class="mono dday" id="dLabel">D${D}${D < S.curDay ? ` <small>(${T("과거", "past")})</small>` : ""}</span>
+      <button id="dNext" ${D >= S.curDay ? "disabled" : ""} aria-label="${T("다음 임무일", "next mission day")}">▶</button>
+      <button id="dClose" ${D !== S.curDay ? "disabled" : ""} title="${T("오늘 입력을 이력에 확정하고 다음 날로", "commit today and move to the next day")}">${T("하루 마감", "Close day")}</button>
+      <button id="mFresh" class="${S.mode === "fresh" ? "on" : ""}">${T("새로 시작(D1)", "Fresh (D1)")}</button><button id="mDemo" class="${S.mode !== "fresh" ? "on" : ""}">${T("데모(D30)", "Demo (D30)")}</button>`;
+    $("#dPrev").onclick = () => goDay(D - 1);
+    $("#dNext").onclick = () => goDay(D + 1);
+    $("#dClose").onclick = closeDay;
+    $("#mFresh").onclick = () => setMode("fresh");
+    $("#mDemo").onclick = () => setMode("demo");
+  }
+  function goDay(d) { if (d < 1 || d > S.curDay) return; stopRad(); S.missionDay = d; dayObj(); camDirty = true; buildCheckin(); refresh(); }
+  function closeDay() {
+    const ids = CHECKIN.map((c) => c.id).concat(UJ.OPTIONAL_INPUTS.map((o) => o.id));
+    const r = TL.closeDay(S.days, S.curDay, ids);
+    S.days = r.days; S.curDay = r.D; S.missionDay = r.D; S.shelter = false; S.radT = 0; stopRad();
+    rs = E.newRespondState(); S.done = {}; camDirty = true; buildCheckin(); refresh();
+  }
+  function setMode(mode) {
+    if (!confirm(mode === "fresh" ? T("모든 데이터(사진 포함)를 지우고 D1부터 새로 시작합니다.", "Delete all data (incl. photos) and start fresh at D1?") : T("모든 데이터(사진 포함)를 지우고 합성 데모(D30)로 돌아갑니다.", "Delete all data (incl. photos) and load the synthetic demo (D30)?"))) return;
+    UJ.cameraUI.stop(); store.photos.clear(); const lang = S.lang; S = wire(store.reset(mode)); S.lang = lang; rs = E.newRespondState(); stopRad(); renderStatic(); refresh();
   }
 
   /* ───────── Respond ───────── */
@@ -397,7 +469,7 @@
   function reportFor(k) {
     const att = S.attach[k] || {};
     return UJ.report.reportText({ card: CARD[k], manual: !!rs.manual[k], comms: S.comms, elapsedSec: Math.max(0, Math.floor((Date.now() - (rs.t0[k] || Date.now())) / 1000)),
-      crew: S.crew, missionDay: S.missionDay, ev, today: S.today, symptoms: S.symptoms, done: S.done[k] || {},
+      crew: S.crew, missionDay: S.missionDay, ev, today: S.today, symptoms: S.symptoms, done: S.done[k] || {}, camera: CD.summary(S.camera, S.missionDay),
       photos: store.photos.all().filter((p) => att[p.id]).map((p) => ({ id: p.id, region: p.region, date: "D" + p.day, note: p.note })) });
   }
   function tick() { const el = $("#timer"); if (!el || !sel || !rs.t0[sel]) return; const s = Math.floor((Date.now() - rs.t0[sel]) / 1000); el.textContent = String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); }
@@ -414,7 +486,7 @@
       return;
     }
     if (t.id === "dlBtn") return downloadPackage(sel);
-    if (t.id === "camFromResp") { view = "camera"; return render(); }
+    if (t.id === "camFromResp") return goCamera();
     if (t.id === "standDown") { rs = E.standDown(rs, sel, ev.cards); delete S.done[sel]; autoBanner = false; view = "care"; return refresh(); }
   }
   function onRespondChange(e) {
@@ -465,7 +537,7 @@
       <div class="panel"><h2>${T("규칙", "Rules")} (${specific.length} + ${T("증상 일반 규칙", "generic symptom rules")} ${rules.length - specific.length})</h2>
         <p class="dim" style="font-size:12px;margin:0 0 6px">${T("증상 일반 규칙: 체크한 증상 → 해당 모듈 주의(1), ⚑ 증상 → 조치(2). 출처 appE. [설계 선택]", "Generic symptom rules: checked symptom → module Watch (1); ⚑ → Act (2). Source appE. [design choice]")}</p>
         <div class="scroll tscroll"><table><tr><th>ID</th><th>${T("타일", "Tile")}</th><th>${T("단계", "Level")}</th><th>${T("조건 (데모)", "Condition (demo)")}</th><th>${T("근거", "Ev.")}</th><th>${T("출처", "Sources")}</th></tr>
-        ${specific.map((r) => `<tr><td class="mono">${r.id}</td><td>${esc(tileName(r.tile))}</td><td class="mono">${PRI[r.level]} ${LV[S.lang][r.level]}${r.card ? " → " + r.card : ""}</td><td>${esc(describeWhen(r.when))}${r.note ? ` <span class="bad">${esc(r.note)}</span>` : ""}</td><td>${r.evidenceLevel}</td><td>${r.sources.map(srcLink).join(", ")}</td></tr>`).join("")}</table></div></div>
+        ${specific.map((r) => `<tr><td class="mono">${r.id}</td><td>${esc(tileName(r.tile))}</td><td class="mono">${PRI[r.level]} ${LV[S.lang][r.level]}${r.card ? " → " + r.card : ""}</td><td>${esc(describeWhen(r.when))}${r.note ? ` <span class="bad">${esc(r.note)}</span>` : ""}${r.camera ? ` <span class="dim">· ${T("보조 신호", "aux signal")} · ${T("감지", "detection")} ${r.detection || "D0"} · ${T("설계 선택", "design choice")}</span>` : ""}</td><td>${r.evidenceLevel}</td><td>${r.sources.map(srcLink).join(", ")}</td></tr>`).join("")}</table></div></div>
       <div class="panel"><h2>${T("응급 카드", "Emergency cards")} (${UJ.CARDS.length})</h2><div class="scroll"><table><tr><th>ID</th><th>${T("카드", "Card")}</th><th>${T("트리거 (데모)", "Trigger (demo)")}</th><th>${T("단계 수", "Steps")}</th><th>${T("사진", "Photos")}</th><th>${T("근거", "Ev.")}</th><th>${T("출처", "Sources")}</th></tr>
         ${UJ.CARDS.map((c) => `<tr><td class="mono">${c.id}</td><td>${esc(L(c))}</td><td>${esc(L(c.triggerText))}${c.manualOnly ? ` <b>(${T("수동 전용", "manual only")})</b>` : ""}</td><td>${c.steps.length}</td><td>${c.photoSlots.join(", ") || "—"}</td><td>${c.evidence}</td><td>${c.sources.map(srcLink).join(", ")}</td></tr>`).join("")}</table></div></div>
       <div class="panel"><h2>${T("출처", "Sources")} (${UJ.SOURCES.length})</h2><div class="scroll"><table><tr><th>ID</th><th>${T("제목", "Title")}</th><th>${T("열람 상태", "Status")}</th><th>Resources ${T("탭", "tab")}</th><th>${T("메모", "Note")}</th></tr>
@@ -484,16 +556,18 @@
     $("#catSel").onchange = draw; draw();
   }
 
-  /* ───────── 카메라 탭 연결 ───────── */
+  /* ───────── 카메라 영역 연결 (모니터·점검과 같은 화면) ───────── */
+  function goCamera() { view = "care"; autoBanner = false; render(); const el = $("#camSection"); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" }); }
   const api = {
     get S() { return S; }, T, L, esc, store,
     save() { store.save(S); },
-    changed() { compute(); renderAlarm(); },
+    changed() { compute(); renderAlarm(); if (view === "care") { renderMonitor(); renderCamGroup(); updateHints(); } },
+    reasonTxt: (r) => reasonTxt(r),
   };
 
   /* ───────── 시작 ───────── */
   function init() {
-    $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (!b) return; if (view === "camera" && b.dataset.view !== "camera") UJ.cameraUI.leave(); view = b.dataset.view; autoBanner = false; render(); });
+    $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (!b) return; view = b.dataset.view; autoBanner = false; render(); });
     $("#langBtn").onclick = () => { S.lang = S.lang === "ko" ? "en" : "ko"; renderStatic(); refresh(); };
     $("#view-respond").addEventListener("click", onRespondClick);
     $("#view-respond").addEventListener("change", onRespondChange);
@@ -504,6 +578,6 @@
     renderStatic(); refresh();
     built = true;
   }
-  window.UJ.app = { get state() { return S; }, get ev() { return ev; }, get view() { return view; }, applyPreset, refresh };
+  window.UJ.app = { get state() { return S; }, get ev() { return ev; }, get view() { return view; }, applyPreset, refresh, goDay, closeDay, PRESETS };
   init();
 })();

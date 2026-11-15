@@ -4,7 +4,15 @@
   const UJ = (g.UJ = g.UJ || {});
   const LV_EN = ["Normal", "Watch", "Act", "Emergency"];
   const f = (v, dec) => (v === null || v === undefined ? "n/a" : (+v).toFixed(dec));
-  const sgn = (v, dec) => (v === null || v === undefined ? "n/a" : (v >= 0 ? "+" : "") + (+v).toFixed(dec));
+  /* 부호 표시. 반올림 후 0이면 "-0" 대신 "0.0" */
+  const sgn = (v, dec) => { if (v === null || v === undefined || Number.isNaN(+v)) return "n/a"; const s = (+v).toFixed(dec); if (+s === 0) return (0).toFixed(dec); return (+s > 0 ? "+" : "") + s; };
+  function cameraLines(cs) {
+    if (!cs || !cs.used) return ["Camera: not used"];
+    const out = ["Camera (auxiliary signal, detection evidence D0, demo threshold +3; no diagnosis):"];
+    for (const r of cs.rows) out.push(`  ${r.key} a* ${r.today === null ? "n/a" : f(r.today, 1)} (d-base ${sgn(r.dBase, 1)}, d-yesterday ${sgn(r.dYest, 1)}; ${r.todayStatus === "ok" ? "gate passed" : r.todayStatus === "lowconf" ? "low confidence, excluded from rules" : "gate failed: " + (r.reasons || []).join(",")}${r.synthetic ? "; SYNTHETIC" : ""})`);
+    if (cs.hr) out.push(`  camera HR ${cs.hr.status === "ok" ? f(cs.hr.bpm, 0) + " bpm" : "unavailable (" + cs.hr.reasons.join(",") + ")"}, SNR ${cs.hr.snr === null ? "n/a" : f(cs.hr.snr, 1)} (reference only, accuracy unverified)`);
+    return out;
+  }
 
   /**
    * ctx = { card, manual, comms:'yes'|'no', elapsedSec, crew, missionDay, ev (engine result), today, symptoms:{id:{sev,onset}},
@@ -37,6 +45,7 @@
       "Today vs personal baseline (mean of first 14 days):",
       chLine("hr", "bpm", 0), chLine("temp", "C", 1), chLine("sleep", "h", 1), chLine("stress", "/5", 0),
       chLine("intake", "%", 0), chLine("ex", "min", 0), chLine("co2", "mmHg", 1),
+      ...cameraLines(ctx.camera),
       `Symptoms checked: ${syms.length ? syms.join("; ") : "none"}`,
       `Related risk groups (not a diagnosis): ${groupNames.length ? groupNames.join("; ") : "none"}`,
       `Active flags: ${flags.length ? flags.join("; ") : "none"}`,
@@ -54,6 +63,6 @@
     const c = UJ.CHANNELS.find((x) => x.id === k); return c ? c.en : k;
   }
 
-  UJ.report = { reportText, tileNameEn };
+  UJ.report = { reportText, tileNameEn, sgn, cameraLines };
   if (typeof module !== "undefined" && module.exports) module.exports = UJ.report;
 })(typeof window !== "undefined" ? window : globalThis);
